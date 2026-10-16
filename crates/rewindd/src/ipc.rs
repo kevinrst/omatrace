@@ -5,23 +5,33 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
 
 use crate::sample::State;
+use rusqlite::Connection;
 
-pub async fn serve(sock: &str, state: Arc<Mutex<State>>) -> Result<()> {
+pub async fn serve(
+    sock: &str,
+    state: Arc<Mutex<State>>,
+    db: Arc<Mutex<Connection>>,
+) -> Result<()> {
     let _ = std::fs::remove_file(sock);
     let listener = UnixListener::bind(sock)?;
     println!("rewindd listening on {sock}");
     loop {
         let (stream, _) = listener.accept().await?;
         let st = state.clone();
+        let dbc = db.clone();
         tokio::spawn(async move {
-            if let Err(e) = handle(stream, st).await {
+            if let Err(e) = handle(stream, st, dbc).await {
                 eprintln!("ipc error: {e:#}");
             }
         });
     }
 }
 
-async fn handle(stream: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
+async fn handle(
+    stream: UnixStream,
+    state: Arc<Mutex<State>>,
+    db: Arc<Mutex<Connection>>,
+) -> Result<()> {
     let (r, mut w) = stream.into_split();
     let mut lines = BufReader::new(r).lines();
     while let Some(line) = lines.next_line().await? {
@@ -50,6 +60,32 @@ async fn handle(stream: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 let pid = req.get("pid").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
                 let sig = req.get("signal").and_then(|s| s.as_str()).unwrap_or("term");
                 serde_json::json!({"ok": kill(pid, sig), "pid": pid})
+            }
+            "history" => {
+                let now = chrono::Utc::now().timestamp_millis();
+                let from = req
+                    .get("from_ms")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(now - 24 * 3600 * 1000);
+                let to = req.get("to_ms").and_then(|v| v.as_i64()).unwrap_or(now);
+                let dbc = db.lock().await;
+                match crate::db::query_range(&dbc, from, to) {
+                    Ok(points) => serde_json::json!({"ok": true, "points": points}),
+                    Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                }
+            }
+            "events" => {
+                let now = chrono::Utc::now().timestamp_millis();
+                let from = req
+                    .get("from_ms")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(now - 24 * 3600 * 1000);
+                let to = req.get("to_ms").and_then(|v| v.as_i64()).unwrap_or(now);
+                let dbc = db.lock().await;
+                match crate::db::query_events(&dbc, from, to) {
+                    Ok(events) => serde_json::json!({"ok": true, "events": events}),
+                    Err(e) => serde_json::json!({"ok": false, "error": e.to_string()}),
+                }
             }
             _ => serde_json::json!({"ok": false, "error": "unknown method"}),
         };

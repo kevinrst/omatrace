@@ -30,9 +30,17 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(Mutex::new(sample::State::new(args.interval_secs)));
     let tick_state = state.clone();
     let db_writer = Arc::new(Mutex::new(conn));
+    let db_reader = db_writer.clone();
+    let interval = std::env::var("REWIND_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(args.interval_secs);
 
     tokio::spawn(async move {
         let mut tick: u64 = 0;
+        // DB minute rollup: write every ~60s regardless of sample interval.
+        let ticks_per_minute = (60 / interval.max(1)).max(1);
+        let ticks_per_prune = ticks_per_minute * 10;
         loop {
             tick += 1;
             let (snap, meta, event) = {
@@ -42,29 +50,23 @@ async fn main() -> anyhow::Result<()> {
             {
                 let dbw = db_writer.lock().await;
                 // per-minute rollup
-                if tick % 30 == 0 {
+                if tick % ticks_per_minute == 0 {
                     let _ = db::insert_minute(&dbw, &snap);
                 }
                 if let Some(ev) = event {
                     let _ = db::insert_event(&dbw, &ev);
                 }
                 // keep DB bounded in background every ~10 min
-                if tick % 300 == 0 {
+                if tick % ticks_per_prune == 0 {
                     let _ = db::prune(&dbw);
                 }
                 let _ = meta;
             }
-            tokio::time::sleep(std::time::Duration::from_secs(
-                std::env::var("REWIND_INTERVAL")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(2),
-            ))
-            .await;
+            tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
         }
     });
 
-    ipc::serve(&runtime, state).await?;
+    ipc::serve(&runtime, state, db_reader).await?;
     Ok(())
 }
 
