@@ -1,160 +1,380 @@
 import QtQuick
-import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
-import Quickshell.Io
-import qs.Ui
 import qs.Commons
+import qs.Ui
 import "RewindClient.js" as Client
 
-// Full dashboard window: live charts, timeline scrub, process filter, kill.
-Panel {
+Item {
   id: root
-  moduleName: "rewind.monitor"
-  ipcTarget: "rewind.monitor"
 
-  property var snapshot: Client.mockSnapshot()
-  property int histLen: 0
-  property int histIndex: -1  // -1 = live
+  property var store: null
+
+  property string tab: "cpu"
   property string filter: ""
-  property string sortBy: "cpu"
-  property bool offline: true
+  property int selectedPid: -1
 
-  function request(obj) {
-    if (sock.connectionState === Socket.Connected)
-      sock.write(JSON.stringify(obj) + "\n");
-  }
-  function pollLatest() { request({method: "latest"}); }
-  function pollIndex(i) { request({method: "get", index: i}); }
+  readonly property color foreground: Color.foreground
+  readonly property color background: Color.background
+  readonly property color subtle: Color.muted
+  readonly property color cardBorder: Util.alpha(Color.foreground, 0.1)
 
-  Socket {
-    id: sock
-    path: "/run/user/1000/rewind.sock"
-    connected: true
-  }
+  readonly property var snap: (store && (store.selectedSnapshot || store.snapshot)) || Client.mockSnapshot()
+  readonly property var sys: snap.system
+  readonly property bool historyMode: store ? store.historyMode : false
 
-  Connections {
-    target: sock
-    function onDataReceived() {
-      var lines = sock.readAll().split("\n");
-      for (var i in lines) {
-        if (!lines[i]) continue;
-        try {
-          var msg = JSON.parse(lines[i]);
-          if (msg.snapshot) {
-            root.snapshot = msg.snapshot;
-            root.offline = false;
-            if (msg.len !== undefined) root.histLen = msg.len;
-          }
-        } catch (e) {}
-      }
+  // System-wide chart series: raw values + daemon index per bar.
+  readonly property var series: {
+    if (!store) return {vals: [], idx: [], max: 100, labels: []}
+    var h = (root.tab === "cpu" ? store.cpuHist : (root.tab === "ram" ? store.ramHist : store.netHist)) || []
+    var vals = h.map(function(p) { return p.v })
+    var idx = h.map(function(p) { return p.idx })
+    if (root.tab === "cpu") return finishCpu(vals, idx)
+    if (root.tab === "ram") {
+      var total = (store.snapshot && store.snapshot.system.ram_total) || 1
+      return {vals: vals, idx: idx, max: total, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Client.fmtBytes(total * r) })}
     }
+    var nm = Math.max(store.netMax, 1)
+    return {vals: vals, idx: idx, max: nm, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Client.fmtBps(nm * r) })}
   }
 
-  Timer {
-    interval: 2000; running: true; repeat: true; triggeredOnStart: true
-    onTriggered: { if (root.histIndex < 0) root.pollLatest(); }
+  // Selected process series (from proc_history points).
+  readonly property var procSeries: {
+    var pts = (store && store.procPoints) || []
+    var vals = pts.map(function(p) { return root.tab === "cpu" ? p.cpu : (root.tab === "ram" ? p.ram : p.net) })
+    if (root.tab === "cpu") return finishCpu(vals, [])
+    if (root.tab === "ram") {
+      var total = (store && store.snapshot && store.snapshot.system.ram_total) || 1
+      return {vals: vals, idx: [], max: total, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Client.fmtBytes(total * r) })}
+    }
+    var nm = 1
+    for (var i = 0; i < vals.length; i++) nm = Math.max(nm, vals[i])
+    return {vals: vals, idx: [], max: nm, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Client.fmtBps(nm * r) })}
   }
 
-  ColumnLayout {
-    anchors.fill: parent
-    anchors.margins: 16
-    spacing: 12
-
-    RowLayout {
-      Text {
-        text: root.offline ? "Rewind (offline — start rewindd)" : "Rewind — " + new Date(root.snapshot.ts_ms).toLocaleTimeString()
-        color: Style.colors.text
-        font.pixelSize: 16
-      }
-      Item { Layout.fillWidth: true }
-      TextField {
-        placeholderText: "Filter processes…"
-        onTextChanged: root.filter = text
-      }
-      ComboBox {
-        model: ["cpu", "ram", "net"]
-        onCurrentTextChanged: root.sortBy = currentText
-      }
-      Button {
-        text: root.histIndex < 0 ? "Live" : "Back to live"
-        onClicked: { root.histIndex = -1; root.pollLatest(); }
-      }
-    }
-
-    // Timeline scrub: index into the snapshot ring (Kova MetricGraph equivalent)
-    RowLayout {
-      Text { text: "Timeline:"; color: Style.colors.subtle }
-      Slider {
-        Layout.fillWidth: true
-        from: 0; to: Math.max(0, root.histLen - 1); stepSize: 1
-        value: root.histIndex < 0 ? root.histLen - 1 : root.histIndex
-        onMoved: { root.histIndex = Math.round(value); root.pollIndex(root.histIndex); }
-      }
-    }
-
-    // Charts row: CPU / RAM / NET bars (simple canvas sparklines for v1)
-    RowLayout {
-      Layout.fillWidth: true
-      ColumnLayout {
-        Text { text: "CPU " + (root.snapshot.system.cpu_percent || 0).toFixed(0) + "%"; color: Style.colors.text }
-        Text { text: "RAM " + Client.fmtBytes(root.snapshot.system.ram_used || 0) + " / " + Client.fmtBytes(root.snapshot.system.ram_total || 1); color: Style.colors.text }
-        Text { text: "NET ↓" + Client.fmtBps((root.snapshot.system.net || {}).down_bps || 0) + " ↑" + Client.fmtBps((root.snapshot.system.net || {}).up_bps || 0); color: Style.colors.text }
-        Text { text: "LOAD " + (root.snapshot.system.load_avg_1 || 0).toFixed(2); color: Style.colors.subtle }
-        Text {
-          text: root.snapshot.system.temp_max_c ? ("TEMP " + root.snapshot.system.temp_max_c.toFixed(0) + "°C") : "TEMP n/a"
-          color: Style.colors.subtle
-        }
-      }
-    }
-
-    // Process table with filter + sort + kill (confirm)
-    ListView {
-      Layout.fillWidth: true
-      Layout.fillHeight: true
-      model: filteredProcesses()
-      delegate: RowLayout {
-        width: ListView.view.width
-        Text { text: modelData.name; color: Style.colors.text; Layout.fillWidth: true; elide: Text.ElideRight }
-        Text { text: (modelData.cpu || 0).toFixed(1) + "%"; color: Style.colors.subtle; Layout.preferredWidth: 60 }
-        Text { text: Client.fmtBytes(modelData.ram || 0); color: Style.colors.subtle; Layout.preferredWidth: 70 }
-        Button {
-          text: "End"
-          onClicked: confirmKill(modelData.pid, modelData.name, false)
-        }
-        Button {
-          text: "Kill"
-          onClicked: confirmKill(modelData.pid, modelData.name, true)
-        }
-      }
-    }
+  function finishCpu(vals, idx) {
+    var peak = 1
+    for (var i = 0; i < vals.length; i++) peak = Math.max(peak, vals[i])
+    var ceil = Math.min(100, Math.ceil(peak * 1.2 / 10) * 10)
+    return {vals: vals, idx: idx, max: ceil, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Math.round(ceil * r) + "%" })}
   }
+
+  function fmtVal(tab, proc) {
+    if (tab === "cpu") return (proc.cpu || 0).toFixed(1) + "%"
+    if (tab === "ram") return Client.fmtBytes(proc.ram || 0)
+    return Client.fmtBps(proc.net || 0)
+  }
+
+  function fmtTime(ts) {
+    var d = new Date(ts)
+    function p(n) { return (n < 10 ? "0" : "") + n }
+    return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds())
+  }
+
+  function open(tab) {
+    if (tab) root.tab = tab
+    root.selectedPid = -1
+    if (store) { store.clearProc(); store.backToLive() }
+    window.visible = true
+  }
+  function close() { window.visible = false }
 
   function filteredProcesses() {
-    var list = (root.snapshot.processes || []).slice();
+    var list = ((snap && snap.processes) || []).slice()
     if (root.filter) {
-      var f = root.filter.toLowerCase();
-      list = list.filter(function(p) { return (p.name || "").toLowerCase().indexOf(f) >= 0; });
+      var f = root.filter.toLowerCase()
+      list = list.filter(function(p) { return (p.name || "").toLowerCase().indexOf(f) >= 0 })
     }
-    list.sort(function(a, b) { return (b[root.sortBy] || 0) - (a[root.sortBy] || 0); });
-    return list.slice(0, 100);
+    var k = root.tab
+    list.sort(function(a, b) { return (b[k] || 0) - (a[k] || 0) })
+    return list.slice(0, 100)
+  }
+
+  function selectedProcess() {
+    if (root.selectedPid < 0) return null
+    var list = (snap && snap.processes) || []
+    for (var i = 0; i < list.length; i++)
+      if (list[i].pid === root.selectedPid) return list[i]
+    return null
+  }
+
+  function selectProcess(pid) {
+    root.selectedPid = pid
+    if (store) store.fetchProcHistory(pid)
   }
 
   function confirmKill(pid, name, force) {
-    // QML confirm dialog; daemon only acts on explicit user action.
-    killDialog.pid = pid;
-    killDialog.procName = name;
-    killDialog.force = force;
-    killDialog.open();
+    killDialog.pid = pid
+    killDialog.procName = name
+    killDialog.force = force
+    killDialog.opened = true
   }
 
-  Dialog {
-    id: killDialog
-    property int pid: 0
-    property string procName: ""
-    property bool force: false
-    title: (force ? "Force kill " : "End ") + procName + " (" + pid + ")?"
-    standardButtons: Dialog.Ok | Dialog.Cancel
-    onAccepted: root.request({method: "kill", pid: killDialog.pid, signal: killDialog.force ? "kill" : "term"})
+  FloatingWindow {
+    id: window
+    title: "Rewind"
+    color: root.background
+    implicitWidth: 780
+    implicitHeight: 640
+    minimumSize: Qt.size(600, 500)
+
+    FocusScope {
+      anchors.fill: parent
+      focus: true
+      Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape) {
+          if (root.selectedPid >= 0) root.selectedPid = -1
+          else root.close()
+          event.accepted = true
+        }
+      }
+
+      // Window outline — same spec as the popup border.
+      Rectangle {
+        anchors.fill: parent
+        color: "transparent"
+        border.width: Math.max(1, Style.space(2))
+        border.color: Color.popups.border
+        radius: Style.cornerRadius
+      }
+
+      ColumnLayout {
+        anchors.fill: parent
+        anchors.margins: 20
+        spacing: 12
+
+        // Top row: back button in detail view, timestamp in history
+        // mode. Hidden entirely when empty — no dead space.
+        RowLayout {
+          Layout.fillWidth: true
+          Layout.preferredHeight: 36
+          visible: root.selectedPid >= 0 || root.historyMode
+          Button {
+            text: "‹ Back"
+            visible: root.selectedPid >= 0
+            onClicked: { root.selectedPid = -1; if (store) store.clearProc() }
+          }
+          Item { Layout.fillWidth: true; visible: root.selectedPid >= 0 }
+          Text {
+            textFormat: Text.PlainText
+            visible: root.historyMode
+            text: root.historyMode ? root.fmtTime(snap.ts_ms) : ""
+            color: root.subtle
+            font.family: Style.font.family
+            font.pixelSize: 12
+          }
+        }
+
+        // Tabs (Kova pill style)
+        RowLayout {
+          Layout.alignment: Qt.AlignHCenter
+          Layout.preferredHeight: 36
+          spacing: 4
+          Repeater {
+            model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"]]
+            delegate: Button {
+              required property var modelData
+              text: modelData[1]
+              onClicked: root.tab = modelData[0]
+            }
+          }
+        }
+
+        // Chart card
+        Rectangle {
+          Layout.fillWidth: true
+          Layout.preferredHeight: 196
+          color: "transparent"
+          border.width: 1
+          border.color: root.cardBorder
+          radius: Style.cornerRadius
+          clip: true
+
+          Bars {
+            anchors.fill: parent
+            anchors.margins: 12
+            values: root.selectedPid < 0 ? root.series.vals : root.procSeries.vals
+            max: root.selectedPid < 0 ? root.series.max : root.procSeries.max
+            yLabels: root.selectedPid < 0 ? root.series.labels : root.procSeries.labels
+            selectedIndex: store ? store.selectedPos : -1
+            interactive: root.selectedPid < 0
+            onBarClicked: function(pos) {
+              if (!store) return
+              if (pos === store.selectedPos) store.backToLive()
+              else if (root.series.idx[pos] !== undefined)
+                store.fetchIndex(root.series.idx[pos], pos)
+            }
+            onBackgroundClicked: { if (store) store.backToLive() }
+          }
+        }
+
+        // Current values line
+        Text {
+          textFormat: Text.PlainText
+          Layout.fillWidth: true
+          elide: Text.ElideRight
+          text: "CPU " + (sys.cpu_percent || 0).toFixed(0) + "%    "
+            + "RAM " + Client.fmtBytes(sys.ram_used || 0) + " / " + Client.fmtBytes(sys.ram_total || 1) + "    "
+            + "NET ↓" + Client.fmtBps((sys.net || {}).down_bps || 0) + " ↑" + Client.fmtBps((sys.net || {}).up_bps || 0) + "    "
+            + "LOAD " + (sys.load_avg_1 || 0).toFixed(2)
+          color: root.subtle
+          font.family: Style.font.family
+          font.pixelSize: 12
+        }
+
+        PanelSeparator {
+          Layout.fillWidth: true
+        }
+
+        // ---- Process list view ----
+        ColumnLayout {
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          spacing: 8
+          visible: root.selectedPid < 0
+
+          TextField {
+            Layout.fillWidth: true
+            placeholderText: "Filter processes…"
+            onTextChanged: root.filter = text
+          }
+
+          Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            color: "transparent"
+            border.width: 1
+            border.color: root.cardBorder
+            radius: Style.cornerRadius
+
+            ListView {
+              anchors.fill: parent
+              anchors.margins: 8
+              clip: true
+              model: root.filteredProcesses()
+              delegate: MouseArea {
+                required property var modelData
+                width: ListView.view.width - 16
+                height: row.height
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.selectProcess(modelData.pid)
+
+                RowLayout {
+                  id: row
+                  width: parent.width
+                  spacing: 8
+                  Text {
+                    textFormat: Text.PlainText
+                    text: modelData.name
+                    color: root.foreground
+                    font.family: Style.font.family
+                    font.pixelSize: 13
+                    Layout.fillWidth: true
+                    elide: Text.ElideRight
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.fmtVal(root.tab, modelData)
+                    color: root.subtle
+                    font.family: Style.font.family
+                    font.pixelSize: 12
+                    Layout.preferredWidth: 72
+                    horizontalAlignment: Text.AlignRight
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // ---- Process detail view ----
+        ColumnLayout {
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          spacing: 8
+          visible: root.selectedPid >= 0
+
+          RowLayout {
+            Layout.fillWidth: true
+            Text {
+              textFormat: Text.PlainText
+              text: root.selectedProcess() ? root.selectedProcess().name : ("PID " + root.selectedPid)
+              color: root.foreground
+              font.family: Style.font.family
+              font.pixelSize: 15
+              font.bold: true
+              Layout.fillWidth: true
+              elide: Text.ElideRight
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            elide: Text.ElideRight
+            text: {
+              var p = root.selectedProcess()
+              if (!p) return "process exited"
+              var s = "PID " + p.pid
+              if (p.exe_path) s += "    " + p.exe_path
+              if (p.started_at) s += "    started " + Client.fmtDateTime(p.started_at * 1000)
+              return s
+            }
+            color: root.subtle
+            font.family: Style.font.family
+            font.pixelSize: 11
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            text: {
+              var p = root.selectedProcess()
+              if (!p) return ""
+              return "CPU " + (p.cpu || 0).toFixed(1) + "%    RAM " + Client.fmtBytes(p.ram || 0) + "    NET " + Client.fmtBps(p.net || 0)
+            }
+            color: root.foreground
+            font.family: Style.font.family
+            font.pixelSize: 13
+          }
+
+          Item { Layout.fillWidth: true; Layout.fillHeight: true }
+
+          RowLayout {
+            Layout.fillWidth: true
+            Item { Layout.fillWidth: true }
+            Button {
+              text: "End"
+              onClicked: {
+                var p = root.selectedProcess()
+                root.confirmKill(root.selectedPid, p ? p.name : ("PID " + root.selectedPid), false)
+              }
+            }
+            Button {
+              text: "Kill"
+              onClicked: {
+                var p = root.selectedProcess()
+                root.confirmKill(root.selectedPid, p ? p.name : ("PID " + root.selectedPid), true)
+              }
+            }
+          }
+        }
+      }
+    }
+
+    ConfirmDialog {
+      id: killDialog
+      property int pid: 0
+      property string procName: ""
+      property bool force: false
+      message: (force ? "Force kill " : "End ") + procName + " (" + pid + ")?"
+      confirmText: force ? "Kill" : "End"
+      onCanceled: killDialog.opened = false
+      onConfirmed: {
+        killDialog.opened = false
+        if (root.store && root.store.sock.connected)
+          root.store.sock.write(JSON.stringify({method: "kill", pid: killDialog.pid, signal: killDialog.force ? "kill" : "term"}) + "\n")
+      }
+    }
   }
 }

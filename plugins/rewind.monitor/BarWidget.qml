@@ -1,77 +1,91 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import qs.Ui
 import qs.Commons
-import "RewindClient.js" as Client
+import qs.Ui
 
-// Compact bar widget: CPU% + RAM% + sparkline. Click opens dashboard panel.
+// Rewind bar widget: single icon. Click toggles the metrics popup
+// anchored to the icon; metric rows open the centered dashboard.
 BarWidget {
   id: root
   moduleName: "rewind.monitor"
 
-  property real cpu: 0
-  property real ram: 0
-  property var cpuHist: []
-  property bool offline: true
+  readonly property string iconGlyph: ""
 
-  implicitWidth: row.implicitWidth + 16
-  implicitHeight: 28
+  readonly property bool opened: popupLoader.item ? popupLoader.item.opened === true : false
 
-  Socket {
-    id: sock
-    path: "/run/user/1000/rewind.sock"
-    connected: true
-    onConnectionStateChanged: root.offline = (sock.connectionState !== Socket.Connected)
+  function open() { if (popupLoader.item) popupLoader.item.open() }
+  function close() { if (popupLoader.item) popupLoader.item.close() }
+  function togglePanel() { if (popupLoader.item) popupLoader.item.toggle() }
+
+  function openDashboard(tab) {
+    if (dashboard.item) dashboard.item.open(tab)
   }
 
-  function poll() {
-    if (sock.connectionState === Socket.Connected) {
-      sock.write('{"method":"latest"}\n');
-    } else {
-      root.offline = true;
+  function injectPanel() {
+    var target = popupLoader.item
+    if (!target) return
+    if ("bar" in target) target.bar = root.bar
+    if ("settings" in target) target.settings = root.settings
+    if ("anchorItem" in target) target.anchorItem = button
+    if ("hostWidget" in target) target.hostWidget = root
+    if ("store" in target) target.store = store
+  }
+
+  function injectDashboard() {
+    var target = dashboard.item
+    if (!target) return
+    if ("store" in target) target.store = store
+  }
+
+  implicitWidth: button.implicitWidth
+  implicitHeight: button.implicitHeight
+
+  onBarChanged: injectPanel()
+
+  RewindData {
+    id: store
+  }
+
+  Loader {
+    id: popupLoader
+    active: true
+    source: Qt.resolvedUrl("Popup.qml")
+    visible: false
+    onLoaded: {
+      root.injectPanel()
+      Qt.callLater(root.injectPanel)
     }
   }
 
-  Connections {
-    target: sock
-    function onDataReceived() {
-      var chunk = sock.readAll();
-      var lines = chunk.split("\n");
-      for (var i in lines) {
-        if (!lines[i]) continue;
-        try {
-          var msg = JSON.parse(lines[i]);
-          if (msg.snapshot && msg.snapshot.system) {
-            root.cpu = msg.snapshot.system.cpu_percent;
-            var rt = msg.snapshot.system.ram_total || 1;
-            root.ram = msg.snapshot.system.ram_used / rt * 100;
-            root.offline = false;
-          }
-        } catch (e) {}
-      }
+  Loader {
+    id: dashboard
+    active: true
+    source: Qt.resolvedUrl("Dashboard.qml")
+    visible: false
+    onLoaded: {
+      root.injectDashboard()
+      Qt.callLater(root.injectDashboard)
     }
   }
 
-  Timer {
-    interval: 2000; running: true; repeat: true; triggeredOnStart: true
-    onTriggered: root.poll()
+  IpcHandler {
+    target: "rewind.monitor"
+
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function show(): void { root.open() }
+    function hide(): void { root.close() }
+    function toggle(): void { root.togglePanel() }
   }
 
-  Row {
-    id: row
-    anchors.centerIn: parent
-    spacing: 8
-    Text {
-      text: "◉ " + Math.round(root.cpu) + "%  " + Math.round(root.ram) + "%"
-      color: root.offline ? Style.colors.subtle : Style.colors.text
-      font.pixelSize: 12
-    }
-  }
-
-  MouseArea {
+  BarIconButton {
+    id: button
     anchors.fill: parent
-    onClicked: Quickshell.ipc.call("omarchy.shell", "summon", { target: "rewind.monitor", args: {} })
-    ToolTip.text: root.offline ? "Rewind offline — click to open" : "Rewind — click for timeline"
+    bar: root.bar
+    text: root.iconGlyph
+    onPressed: function(b) {
+      if (b === Qt.LeftButton) root.togglePanel()
+    }
   }
 }

@@ -1,11 +1,5 @@
-// Rewind socket client: line-delimited JSON over $XDG_RUNTIME_DIR/rewind.sock.
-// Falls back to mock data when rewindd is offline so the widget stays useful.
+// Shared formatting + offline fallback snapshot for Rewind QML.
 .pragma library
-
-function socketPath() {
-  var rt = Qt.getenv ? "" : "";
-  return "/run/user/1000/rewind.sock";
-}
 
 function mockSnapshot() {
   var now = Date.now();
@@ -33,4 +27,14 @@ function fmtBytes(b) {
 
 function fmtBps(b) {
   return fmtBytes(b) + "/s";
+}
+
+function fmtDateTime(ts) {
+  var days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var months = ["January", "February", "March", "April", "May", "June", "July",
+                "August", "September", "October", "November", "December"];
+  function p(n) { return (n < 10 ? "0" : "") + n; }
+  var d = new Date(ts);
+  return days[d.getDay()] + ", " + months[d.getMonth()] + " " + d.getDate() + ", " + d.getFullYear()
+    + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
 }

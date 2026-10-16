@@ -4,15 +4,14 @@
   "name": "Rewind",
   "version": "0.1.0",
   "author": "Rewind",
-  "description": "System monitoring with timeline snapshots. Bar widget + dashboard.",
-  "kinds": ["bar-widget", "panel"],
+  "description": "System monitoring with timeline snapshots. Icon, popup, dashboard.",
+  "kinds": ["bar-widget"],
   "entryPoints": {
-    "barWidget": "BarWidget.qml",
-    "panel": "Dashboard.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
     "displayName": "Rewind",
-    "description": "CPU / RAM at a glance. Click to open timeline dashboard.",
+    "description": "System monitor. Click for metrics, then drill into the timeline.",
     "category": "System",
     "allowMultiple": false
   }
