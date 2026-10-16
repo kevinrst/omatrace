@@ -40,7 +40,7 @@ async fn handle(
         let resp = match method {
             "latest" => {
                 let st = state.lock().await;
-                serde_json::json!({"ok": true, "snapshot": st.latest()})
+                serde_json::json!({"ok": true, "snapshot": st.latest(), "len": st.len()})
             }
             "get" => {
                 let idx = req.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
