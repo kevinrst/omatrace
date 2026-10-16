@@ -16,14 +16,27 @@ rewind/
     rewindd/                   # daemon: sampling, ring buffers, SQLite 24h, Unix-socket JSON
   plugins/
     rewind.monitor/            # Omarchy shell plugin (bar-widget + panel)
-  docs/
-    ipc.md                    # socket protocol (timestamps + units, versioned)
 ```
+
+## IPC
+
+Unix socket `$XDG_RUNTIME_DIR/rewind.sock`, one JSON object per line.
+Timestamps are unix millis; CPU is 0-100 float; RAM/net are bytes and bytes/sec.
+
+| method | args | returns |
+|---|---|---|
+| `latest` | — | newest snapshot (system + top-40 processes) |
+| `get` | `index` | snapshot at ring-buffer index, plus `len` |
+| `len` | — | snapshot count |
+| `proc_history` | `pid` | per-process sparkline (up to 150 pts) |
+| `history` | `from_ms`, `to_ms` (default 24h) | per-minute rollups |
+| `events` | `from_ms`, `to_ms` (default 24h) | threshold crossings, newest first |
+| `kill` | `pid`, `signal` (`term`/`kill`) | graceful TERM by default, KILL only on confirm |
 
 ## Status
 
-Scaffold v0.1. Daemon compiles, QML plugin loads with mock fallback
-when daemon is offline. See `docs/ipc.md` for the contract.
+Scaffold v0.1. Daemon runs, QML plugin loads with mock fallback
+when daemon is offline.
 
 ## Quick start
 
@@ -39,5 +52,17 @@ cp -r plugins/rewind.monitor/* ~/.config/omarchy/plugins/rewind.monitor/
 omarchy plugin enable rewind.monitor
 ```
 
-Daemon socket: `$XDG_RUNTIME_DIR/rewind.sock` (JSON lines, see `docs/ipc.md`).
+Daemon socket: `$XDG_RUNTIME_DIR/rewind.sock` (JSON lines, see IPC table above).
 DB: `~/.local/share/rewind/history.db` (SQLite, 24h retention, downsampled).
+
+## Floating dashboard
+
+The dashboard is a regular window — keep it out of the tiling layout
+with a Hyprland rule (matches the window title):
+
+```lua
+o.window({ title = "Rewind" }, { float = true, center = true })
+```
+
+The bar icon is a placeholder glyph; swap `BarWidget.qml`'s `text` for an
+`iconComponent` when the custom icon lands.
