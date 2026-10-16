@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "rewind.monitor",
+  "name": "Rewind",
+  "version": "0.1.0",
+  "author": "Rewind",
+  "description": "System monitoring with timeline snapshots. Bar widget + dashboard.",
+  "kinds": ["bar-widget", "panel"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "panel": "Dashboard.qml"
+  },
+  "barWidget": {
+    "displayName": "Rewind",
+    "description": "CPU / RAM at a glance. Click to open timeline dashboard.",
+    "category": "System",
+    "allowMultiple": false
+  }
+}
