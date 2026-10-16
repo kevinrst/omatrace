@@ -1,0 +1,11 @@
+[Unit]
+Description=Rewind system monitor daemon
+After=network.target
+
+[Service]
+ExecStart=%h/.local/bin/rewindd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
