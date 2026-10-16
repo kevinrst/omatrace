@@ -14,6 +14,8 @@ CPU `%` (0-100 float), RAM bytes, network bytes/sec, temp Celsius.
 {"method": "len"}
 {"method": "proc_history", "pid": 1234}
 {"method": "kill", "pid": 1234, "signal": "term"}
+{"method": "history", "from_ms": 1791900000000, "to_ms": 1792000000000}
+{"method": "events", "from_ms": 1791900000000, "to_ms": 1792000000000}
 ```
 
 `signal` is `"term"` (SIGTERM, graceful) or `"kill"` (SIGKILL).
@@ -58,3 +60,27 @@ QML must confirm before sending `kill`; the daemon never escalates silently.
 Missing sensors are `null` (temp) or `0` with graceful QML fallback —
 never fake data. Per-process network is heuristic attribution;
 interface totals in `system.net` are authoritative.
+
+## 24h history
+
+`history` returns per-minute rollups (up to ~1440 points).
+`from_ms`/`to_ms` default to the last 24h when omitted.
+
+```json
+{"ok": true, "points": [
+  {"ts_ms": 1791900000000, "cpu": 23.5, "ram_used": 8000000000,
+   "ram_total": 16000000000, "down_bps": 1000, "up_bps": 500}
+]}
+```
+
+`events` returns threshold crossings (up to 200, newest first):
+
+```json
+{"ok": true, "events": [
+  {"ts_ms": 1791950000000, "kind": "cpu_spike",
+   "label": "CPU spike to 85% — top: gcc (62%)",
+   "cpu": 85.0, "ram_used": 8000000000, "ram_total": 16000000000}
+]}
+```
+
+Event kinds: `cpu_spike`, `mem_pressure`, `temp`.
