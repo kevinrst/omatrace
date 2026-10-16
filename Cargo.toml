@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/rewind-core", "crates/rewindd"]
+resolver = "2"
