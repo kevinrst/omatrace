@@ -143,39 +143,42 @@ Item {
         anchors.margins: 20
         spacing: 12
 
-        // Top row: back button in detail view, timestamp in history
-        // mode. Hidden entirely when empty — no dead space.
+        // Top row: back button in detail view only.
         RowLayout {
           Layout.fillWidth: true
           Layout.preferredHeight: 36
-          visible: root.selectedPid >= 0 || root.historyMode
+          visible: root.selectedPid >= 0
           Button {
             text: "‹ Back"
-            visible: root.selectedPid >= 0
             onClicked: { root.selectedPid = -1; if (store) store.clearProc() }
           }
-          Item { Layout.fillWidth: true; visible: root.selectedPid >= 0 }
+          Item { Layout.fillWidth: true }
+        }
+
+        // Tabs 
+        Item {
+          Layout.fillWidth: true
+          Layout.preferredHeight: 36
           Text {
             textFormat: Text.PlainText
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
             visible: root.historyMode
             text: root.historyMode ? root.fmtTime(snap.ts_ms) : ""
             color: root.subtle
             font.family: Style.font.family
             font.pixelSize: 12
           }
-        }
-
-        // Tabs (Kova pill style)
-        RowLayout {
-          Layout.alignment: Qt.AlignHCenter
-          Layout.preferredHeight: 36
-          spacing: 4
-          Repeater {
-            model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"]]
-            delegate: Button {
-              required property var modelData
-              text: modelData[1]
-              onClicked: root.tab = modelData[0]
+          RowLayout {
+            anchors.centerIn: parent
+            spacing: 4
+            Repeater {
+              model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"]]
+              delegate: Button {
+                required property var modelData
+                text: modelData[1]
+                onClicked: root.tab = modelData[0]
+              }
             }
           }
         }
