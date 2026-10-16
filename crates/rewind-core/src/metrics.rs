@@ -102,8 +102,6 @@ pub fn sample_system(
     prev_tx: &mut u64,
     interval_secs: u64,
 ) -> SystemSample {
-    let now_ms = chrono::Utc::now().timestamp_millis();
-    let _ = now_ms;
     let cpu_percent = sys.global_cpu_usage();
     let cpu_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
     let load = System::load_average();
