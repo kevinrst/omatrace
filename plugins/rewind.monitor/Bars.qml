@@ -12,6 +12,8 @@ Item {
   property bool interactive: false
   property bool showLabels: true
   property int miniBars: 0 // >0: show only last N values (sparklines)
+  // Floor so flat values stay tappable. Minis use 0 to avoid dotted-line noise.
+  property real minPct: interactive ? 1.5 : 0
 
   signal barClicked(int pos)
   signal backgroundClicked()
@@ -45,11 +47,11 @@ Item {
       }
     }
 
-    // Bars area
     Item {
       id: area
       width: parent.width - (root.showLabels ? 48 : 0)
       height: parent.height
+      clip: true
 
       // Grid lines, evenly spaced (full chart only — minis stay clean)
       Repeater {
@@ -82,11 +84,11 @@ Item {
             required property var modelData
             required property int index
             readonly property int pos: root.offset + index
-            readonly property real pct: Math.min(100, Math.max((modelData / Math.max(root.max, 1)) * 100, 1.5))
+            readonly property real pct: Math.min(100, Math.max((modelData / Math.max(root.max, 1)) * 100, root.minPct))
             readonly property bool dimmed: root.selectedIndex >= 0 && root.selectedIndex !== pos
             readonly property bool selected: root.selectedIndex === pos
 
-            width: Math.max(2, (area.width - (rep.count - 1) * 2) / Math.max(rep.count, 1))
+            width: Math.max(root.interactive ? 2 : 0.5, (area.width - (rep.count - 1) * 2) / Math.max(rep.count, 1))
             height: area.height
             opacity: dimmed ? 0.28 : 1.0
 

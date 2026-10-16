@@ -65,6 +65,7 @@ Panel {
 
             Row {
               anchors.fill: parent
+              anchors.rightMargin: 12
               spacing: 12
 
               Column {
@@ -93,6 +94,7 @@ Panel {
                 values: modelData.hist.map(function(p) { return p.v })
                 max: modelData.max
                 showLabels: false
+                miniBars: 30
                 interactive: false
               }
             }
