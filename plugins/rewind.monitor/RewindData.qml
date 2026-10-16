@@ -17,7 +17,8 @@ Item {
   // Snapshot selected by clicking a chart bar. Null = live.
   property var selectedSnapshot: null
   property int selectedPos: -1
-  property int _pendingPos: -1
+
+  property var _pending: ({})
 
   // Per-process sparkline for the drill-down view.
   property int procPid: -1
@@ -35,7 +36,9 @@ Item {
   }
 
   function fetchIndex(idx, pos) {
-    _pendingPos = (pos === undefined) ? -1 : pos
+    var p = _pending
+    p[idx] = (pos === undefined) ? -1 : pos
+    _pending = p
     if (sock.connected) sock.write(JSON.stringify({method: "get", index: idx}) + "\n")
   }
 
@@ -55,6 +58,7 @@ Item {
   function backToLive() {
     selectedSnapshot = null
     selectedPos = -1
+    _pending = ({})
     pollLatest()
   }
 
@@ -82,12 +86,18 @@ Item {
           root._pendingPid = -1
           return
         }
-        if (!msg.snapshot) return
-        // Historical snapshot answering a chart-bar click.
-        if (root._pendingPos >= 0) {
+        if (!msg.snapshot) {
+          if (msg.index !== undefined) root.backToLive()
+          return
+        }
+
+        if (msg.index !== undefined) {
+          var pos = root._pending[msg.index]
+          var p = root._pending
+          delete p[msg.index]
+          root._pending = p
           root.selectedSnapshot = msg.snapshot
-          root.selectedPos = root._pendingPos
-          root._pendingPos = -1
+          root.selectedPos = (pos === undefined) ? -1 : pos
           return
         }
         // Live snapshot (only when not scrubbing history).
