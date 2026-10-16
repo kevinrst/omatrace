@@ -45,7 +45,7 @@ async fn handle(
             "get" => {
                 let idx = req.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
                 let st = state.lock().await;
-                serde_json::json!({"ok": true, "snapshot": st.get(idx), "len": st.len()})
+                serde_json::json!({"ok": true, "snapshot": st.get(idx), "len": st.len(), "index": idx})
             }
             "len" => {
                 let st = state.lock().await;
