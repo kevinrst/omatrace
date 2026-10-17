@@ -42,14 +42,40 @@ async fn handle(stream: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
                 serde_json::json!({"ok": true, "len": st.len()})
             }
             "proc_history" => {
-                let pid = req.get("pid").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
                 let st = state.lock().await;
-                serde_json::json!({"ok": true, "points": st.proc_history(pid)})
+                let points = match req.get("pids").and_then(|v| v.as_array()) {
+                    Some(list) => {
+                        let pids: Vec<u32> = list
+                            .iter()
+                            .filter_map(|v| v.as_u64())
+                            .map(|v| v as u32)
+                            .collect();
+                        st.proc_history_sum(&pids)
+                    }
+                    None => {
+                        let pid = req.get("pid").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
+                        st.proc_history(pid)
+                    }
+                };
+                serde_json::json!({"ok": true, "points": points})
             }
             "kill" => {
-                let pid = req.get("pid").and_then(|p| p.as_u64()).unwrap_or(0) as u32;
                 let sig = req.get("signal").and_then(|s| s.as_str()).unwrap_or("term");
-                serde_json::json!({"ok": kill(pid, sig), "pid": pid})
+                let pids: Vec<u32> = match req.get("pids").and_then(|v| v.as_array()) {
+                    Some(list) => list
+                        .iter()
+                        .filter_map(|v| v.as_u64())
+                        .map(|v| v as u32)
+                        .collect(),
+                    None => req
+                        .get("pid")
+                        .and_then(|p| p.as_u64())
+                        .map(|p| p as u32)
+                        .into_iter()
+                        .collect(),
+                };
+                let killed = kill(&pids, sig);
+                serde_json::json!({"ok": killed > 0, "killed": killed, "pids": pids})
             }
             "history" => {
                 let from = req.get("from_ms").and_then(|v| v.as_i64()).unwrap_or(0);
@@ -82,15 +108,22 @@ async fn handle(stream: UnixStream, state: Arc<Mutex<State>>) -> Result<()> {
     Ok(())
 }
 
-fn kill(pid: u32, signal: &str) -> bool {
+fn kill(pids: &[u32], signal: &str) -> usize {
     use sysinfo::{Pid, Signal, System};
     let mut sys = System::new();
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
-    let Some(proc_) = sys.process(Pid::from_u32(pid)) else {
-        return false;
-    };
-    match signal {
-        "kill" => proc_.kill(),
-        _ => proc_.kill_with(Signal::Term).unwrap_or(false),
+    let mut killed = 0;
+    for &pid in pids {
+        let Some(proc_) = sys.process(Pid::from_u32(pid)) else {
+            continue;
+        };
+        let done = match signal {
+            "kill" => proc_.kill(),
+            _ => proc_.kill_with(Signal::Term).unwrap_or(false),
+        };
+        if done {
+            killed += 1;
+        }
     }
+    killed
 }

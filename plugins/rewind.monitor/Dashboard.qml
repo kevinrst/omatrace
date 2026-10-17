@@ -13,6 +13,15 @@ Item {
   property string tab: "cpu"
   property string filter: ""
   property int selectedPid: -1
+  property string selectedGroup: ""
+  // Group keys with their subprocess list expanded.
+  property var expanded: ({})
+
+  readonly property bool inProcess: root.selectedPid >= 0
+  readonly property bool inApp: !root.inProcess && root.selectedGroup !== ""
+  readonly property bool inDetail: root.inProcess || root.inApp
+  // Chevron cell width, shared by the row layout and the hit test.
+  readonly property real disclosureWidth: Style.space(16)
 
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background
@@ -81,20 +90,196 @@ Item {
   function open(tab) {
     if (tab) root.tab = tab
     root.selectedPid = -1
+    root.selectedGroup = ""
     if (store) { store.clearProc(); store.backToLive() }
     window.visible = true
   }
   function close() { window.visible = false }
 
-  function filteredProcesses() {
-    var list = ((snap && snap.processes) || []).slice()
-    if (root.filter) {
-      var f = root.filter.toLowerCase()
-      list = list.filter(function(p) { return (p.name || "").toLowerCase().indexOf(f) >= 0 })
+  function back() {
+    if (root.inProcess) {
+      root.selectedPid = -1
+      if (root.selectedGroup) root.fetchGroupSeries()
+      else if (store) store.clearProc()
+    } else {
+      root.selectedGroup = ""
+      if (store) store.clearProc()
     }
+  }
+
+  // Process grouping 
+  function groupKey(p) {
+    return p.exe_path ? "exe:" + p.exe_path : "name:" + (p.name || "?")
+  }
+
+  function metricOfSelf(p) {
+    if (root.tab === "cpu") return p.self_cpu || 0
+    if (root.tab === "ram") return p.self_ram || 0
+    if (root.tab === "net") return p.self_net || 0
+    return p.self_disk || 0
+  }
+
+  // The app's main process: the member whose parent is not in the group.
+  function groupRoot(g) {
+    var pids = {}
+    for (var i = 0; i < g.members.length; i++) pids[g.members[i].pid] = true
+    for (var j = 0; j < g.members.length; j++) {
+      var m = g.members[j]
+      if (!pids[m.parent_pid]) return m
+    }
+    return g.members[0]
+  }
+
+  function rootName(g) {
+    var r = groupRoot(g)
+    return (r && r.name) || g.key
+  }
+
+  function groupMatches(g) {
+    var f = root.filter.toLowerCase()
+    if (g.label.toLowerCase().indexOf(f) >= 0) return true
+    for (var i = 0; i < g.members.length; i++) {
+      if ((g.members[i].name || "").toLowerCase().indexOf(f) >= 0) {
+        g.forced = true
+        return true
+      }
+    }
+    return false
+  }
+
+  function processGroups(applyFilter) {
+    var list = ((snap && snap.processes) || [])
+    var map = {}
+    var keys = []
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i]
+      var k = groupKey(p)
+      var g = map[k]
+      if (!g) {
+        g = {key: k, label: "", icon_path: "", members: [],
+             cpu: 0, ram: 0, net: 0, disk: 0, forced: false}
+        map[k] = g
+        keys.push(k)
+      }
+      if (p.app_name) g.label = p.app_name
+      if (!g.icon_path && p.icon_path) g.icon_path = p.icon_path
+      g.members.push(p)
+      g.cpu += p.self_cpu || 0
+      g.ram += p.self_ram || 0
+      g.net += p.self_net || 0
+      g.disk += p.self_disk || 0
+    }
+    var out = []
+    for (var j = 0; j < keys.length; j++) {
+      var grp = map[keys[j]]
+      if (!grp.label) grp.label = rootName(grp)
+      if (applyFilter && root.filter && !groupMatches(grp)) continue
+      out.push(grp)
+    }
+    return out
+  }
+
+  function selectedGroupData() {
+    if (!root.selectedGroup) return null
+    var gs = root.processGroups(false)
+    for (var i = 0; i < gs.length; i++)
+      if (gs[i].key === root.selectedGroup) return gs[i]
+    return null
+  }
+
+  function selectGroup(key) {
+    root.selectedGroup = key
+    root.selectedPid = -1
+    root.fetchGroupSeries()
+  }
+
+  function selectProcess(pid) {
+    root.selectedPid = pid
+    if (store) store.fetchProcHistory(pid)
+  }
+
+  function fetchGroupSeries() {
+    var g = root.selectedGroupData()
+    if (!g || !store) return
+    var pids = []
+    for (var i = 0; i < g.members.length; i++) pids.push(g.members[i].pid)
+    store.fetchGroupHistory(pids, root.groupRoot(g).pid)
+  }
+
+  // An app's processes: its main process first, then by the active metric.
+  function groupMemberRows() {
+    var g = root.selectedGroupData()
+    if (!g) return []
+    var mainPid = root.groupRoot(g).pid
+    var ms = g.members.slice()
+    ms.sort(function(a, b) {
+      if ((a.pid === mainPid) !== (b.pid === mainPid)) return a.pid === mainPid ? -1 : 1
+      return root.metricOfSelf(b) - root.metricOfSelf(a)
+    })
+    var rows = []
+    for (var i = 0; i < ms.length; i++) {
+      var m = ms[i]
+      rows.push({pid: m.pid, label: m.name, icon_path: m.icon_path, main: m.pid === mainPid,
+                 cpu: m.self_cpu || 0, ram: m.self_ram || 0, net: m.self_net || 0, disk: m.self_disk || 0})
+    }
+    return rows
+  }
+
+  function isOpen(g) {
+    return g.members.length > 1 && (g.forced || root.expanded[g.key] === true)
+  }
+
+  function toggleGroup(key) {
+    var e = {}
+    for (var k in root.expanded) e[k] = root.expanded[k]
+    e[key] = !(e[key] === true)
+    root.expanded = e
+  }
+
+  // The chevron's strip discloses a group; the rest of the row opens it.
+  function rowIndent(modelData) {
+    return modelData.kind === "proc" ? Style.space(12) : 0
+  }
+
+  function rowHit(modelData, x) {
+    return modelData.kind === "group" && modelData.count > 1
+        && x <= root.rowIndent(modelData) + root.disclosureWidth
+  }
+
+  function activateRow(modelData, x) {
+    if (root.rowHit(modelData, x)) {
+      root.toggleGroup(modelData.key)
+    } else if (modelData.kind === "group" && modelData.count > 1) {
+      root.selectGroup(modelData.key)
+    } else if (modelData.pid >= 0) {
+      root.selectProcess(modelData.pid)
+    }
+  }
+
+  function processRows() {
+    var groups = processGroups(true)
     var k = root.tab
-    list.sort(function(a, b) { return (b[k] || 0) - (a[k] || 0) })
-    return list.slice(0, 100)
+    groups.sort(function(a, b) { return (b[k] || 0) - (a[k] || 0) })
+    groups = groups.slice(0, 40)
+    var rows = []
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i]
+      var multi = g.members.length > 1
+      var open = isOpen(g)
+      rows.push({kind: "group", key: g.key, label: g.label, icon_path: g.icon_path,
+                 pid: multi ? -1 : g.members[0].pid, count: g.members.length, expanded: open,
+                 cpu: g.cpu, ram: g.ram, net: g.net, disk: g.disk})
+      if (!open) continue
+      var members = g.members.slice()
+      members.sort(function(a, b) { return root.metricOfSelf(b) - root.metricOfSelf(a) })
+      for (var j = 0; j < members.length; j++) {
+        var m = members[j]
+        rows.push({kind: "proc", key: "pid:" + m.pid, label: m.name, icon_path: m.icon_path,
+                   pid: m.pid, count: 1, expanded: false,
+                   cpu: m.self_cpu || 0, ram: m.self_ram || 0, net: m.self_net || 0, disk: m.self_disk || 0})
+      }
+    }
+    return rows
   }
 
   function selectedProcess() {
@@ -105,16 +290,86 @@ Item {
     return null
   }
 
-  function selectProcess(pid) {
-    root.selectedPid = pid
-    if (store) store.fetchProcHistory(pid)
+  // Detail header/metadata for whichever view is open.
+  function detailTitle() {
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      return g ? g.label : "app"
+    }
+    var p = root.selectedProcess()
+    return p ? p.name : ("PID " + root.selectedPid)
   }
 
-  function confirmKill(pid, name, force) {
-    killDialog.pid = pid
-    killDialog.procName = name
+  function detailIcon() {
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      return g ? g.icon_path : ""
+    }
+    var p = root.selectedProcess()
+    return p ? p.icon_path : ""
+  }
+
+  function detailMeta() {
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      if (!g) return ""
+      var r = root.groupRoot(g)
+      var s = g.members.length + " processes    main PID " + r.pid
+      if (r.exe_path) s += "    " + r.exe_path
+      if (r.started_at) s += "    started " + Client.fmtDateTime(r.started_at * 1000)
+      return s
+    }
+    var p = root.selectedProcess()
+    if (!p) return "process exited"
+    var t = "PID " + p.pid
+    if (p.exe_path) t += "    " + p.exe_path
+    if (p.started_at) t += "    started " + Client.fmtDateTime(p.started_at * 1000)
+    return t
+  }
+
+  function detailMetrics() {
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      if (!g) return ""
+      return "CPU " + g.cpu.toFixed(1) + "%    RAM " + Client.fmtBytes(g.ram)
+        + "    NET " + Client.fmtBps(g.net) + "    DISK " + Client.fmtBps(g.disk)
+    }
+    var p = root.selectedProcess()
+    if (!p) return ""
+    return "CPU " + (p.cpu || 0).toFixed(1) + "%    RAM " + Client.fmtBytes(p.ram || 0)
+      + "    NET " + Client.fmtBps(p.net || 0) + "    DISK " + Client.fmtBps(p.disk || 0)
+  }
+
+  // What End and Kill act on; the app's main process leads the list.
+  function killTarget() {
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      if (!g) return null
+      var pids = [root.groupRoot(g).pid]
+      for (var i = 0; i < g.members.length; i++)
+        if (g.members[i].pid !== pids[0]) pids.push(g.members[i].pid)
+      return {pids: pids, name: g.label}
+    }
+    if (root.selectedPid < 0) return null
+    var p = root.selectedProcess()
+    return {pids: [root.selectedPid], name: p ? p.name : ("PID " + root.selectedPid)}
+  }
+
+  function confirmKill(force) {
+    var t = root.killTarget()
+    if (!t) return
+    killDialog.pids = t.pids
+    killDialog.procName = t.name
     killDialog.force = force
     killDialog.opened = true
+  }
+
+  function killMessage() {
+    var pids = killDialog.pids
+    var verb = killDialog.force ? "Force kill " : "End "
+    if (pids.length <= 1) return verb + killDialog.procName + " (" + (pids[0] || 0) + ")?"
+    if (pids.length === 2) return verb + killDialog.procName + " and 1 other process?"
+    return verb + killDialog.procName + " and its " + (pids.length - 1) + " other processes?"
   }
 
   FloatingWindow {
@@ -130,8 +385,12 @@ Item {
       anchors.fill: parent
       focus: true
       Keys.onPressed: function(event) {
+        if (killDialog.opened) {
+          if (killDialog.handleKey(event)) event.accepted = true
+          return
+        }
         if (event.key === Qt.Key_Escape) {
-          if (root.selectedPid >= 0) root.selectedPid = -1
+          if (root.inDetail) root.back()
           else root.close()
           event.accepted = true
         }
@@ -155,10 +414,10 @@ Item {
         RowLayout {
           Layout.fillWidth: true
           Layout.preferredHeight: 36
-          visible: root.selectedPid >= 0
+          visible: root.inDetail
           Button {
             text: "‹ Back"
-            onClicked: { root.selectedPid = -1; if (store) store.clearProc() }
+            onClicked: root.back()
           }
           Item { Layout.fillWidth: true }
         }
@@ -204,11 +463,11 @@ Item {
           Bars {
             anchors.fill: parent
             anchors.margins: 12
-            values: root.selectedPid < 0 ? root.series.vals : root.procSeries.vals
-            max: root.selectedPid < 0 ? root.series.max : root.procSeries.max
-            yLabels: root.selectedPid < 0 ? root.series.labels : root.procSeries.labels
+            values: root.inDetail ? root.procSeries.vals : root.series.vals
+            max: root.inDetail ? root.procSeries.max : root.series.max
+            yLabels: root.inDetail ? root.procSeries.labels : root.series.labels
             selectedIndex: store ? store.selectedPos : -1
-            interactive: root.selectedPid < 0
+            interactive: !root.inDetail
             onBarClicked: function(pos) {
               if (!store) return
               if (pos === store.selectedPos) store.backToLive()
@@ -243,11 +502,11 @@ Item {
           Layout.fillWidth: true
           Layout.fillHeight: true
           spacing: 8
-          visible: root.selectedPid < 0
+          visible: !root.inDetail
 
           TextField {
             Layout.fillWidth: true
-            placeholderText: "Filter processes…"
+            placeholderText: "Filter apps…"
             onTextChanged: root.filter = text
           }
 
@@ -263,7 +522,152 @@ Item {
               anchors.fill: parent
               anchors.margins: 8
               clip: true
-              model: root.filteredProcesses()
+              model: root.processRows()
+              delegate: MouseArea {
+                required property var modelData
+                width: ListView.view.width - 16
+                height: row.height
+                cursorShape: Qt.PointingHandCursor
+                onClicked: function(mouse) { root.activateRow(modelData, mouse.x) }
+
+                RowLayout {
+                  id: row
+                  width: parent.width
+                  spacing: 8
+                  Item {
+                    Layout.preferredWidth: root.disclosureWidth
+                    Layout.leftMargin: root.rowIndent(modelData)
+                    Text {
+                      anchors.centerIn: parent
+                      textFormat: Text.PlainText
+                      visible: modelData.kind === "group" && modelData.count > 1
+                      text: modelData.expanded ? "󰅀" : "󰅂"
+                      color: root.subtle
+                      font.family: Style.font.family
+                      font.pixelSize: 12
+                    }
+                  }
+                  Image {
+                    source: modelData.icon_path ? "file://" + encodeURI(modelData.icon_path) : ""
+                    sourceSize.width: 32
+                    sourceSize.height: 32
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    Layout.alignment: Qt.AlignVCenter
+                    opacity: modelData.kind === "group" ? 1.0 : 0.5
+                    smooth: true
+                    asynchronous: true
+                    cache: true
+                  }
+                  TextMetrics {
+                    id: nameMetrics
+                    font.family: Style.font.family
+                    font.pixelSize: modelData.kind === "group" ? 13 : 12
+                    text: modelData.label
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    text: modelData.label
+                    color: modelData.kind === "group" ? root.foreground : root.subtle
+                    font.family: Style.font.family
+                    font.pixelSize: modelData.kind === "group" ? 13 : 12
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: nameMetrics.advanceWidth + 4
+                    elide: Text.ElideRight
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    visible: modelData.kind === "group" && modelData.count > 1
+                    text: modelData.count
+                    color: root.subtle
+                    font.family: Style.font.family
+                    font.pixelSize: 11
+                    Layout.alignment: Qt.AlignVCenter
+                  }
+                  Item {
+                    Layout.fillWidth: true
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    text: root.fmtVal(root.tab, modelData)
+                    color: root.subtle
+                    font.family: Style.font.family
+                    font.pixelSize: 12
+                    Layout.preferredWidth: 72
+                    horizontalAlignment: Text.AlignRight
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // ---- Detail view: an app or a single process ----
+        ColumnLayout {
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          spacing: 8
+          visible: root.inDetail
+
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: 8
+            Image {
+              visible: root.detailIcon() !== ""
+              source: root.detailIcon() ? "file://" + encodeURI(root.detailIcon()) : ""
+              sourceSize.width: 48
+              sourceSize.height: 48
+              Layout.preferredWidth: 24
+              Layout.preferredHeight: 24
+              Layout.alignment: Qt.AlignVCenter
+              smooth: true
+              asynchronous: true
+            }
+            Text {
+              textFormat: Text.PlainText
+              text: root.detailTitle()
+              color: root.foreground
+              font.family: Style.font.family
+              font.pixelSize: 15
+              font.bold: true
+              Layout.fillWidth: true
+              elide: Text.ElideRight
+            }
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            elide: Text.ElideRight
+            text: root.detailMeta()
+            color: root.subtle
+            font.family: Style.font.family
+            font.pixelSize: 11
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            text: root.detailMetrics()
+            color: root.foreground
+            font.family: Style.font.family
+            font.pixelSize: 13
+          }
+
+          Rectangle {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: root.inApp
+            color: "transparent"
+            border.width: 1
+            border.color: root.cardBorder
+            radius: Style.cornerRadius
+
+            ListView {
+              anchors.fill: parent
+              anchors.margins: 8
+              clip: true
+              model: root.groupMemberRows()
               delegate: MouseArea {
                 required property var modelData
                 width: ListView.view.width - 16
@@ -282,18 +686,38 @@ Item {
                     Layout.preferredWidth: 16
                     Layout.preferredHeight: 16
                     Layout.alignment: Qt.AlignVCenter
+                    opacity: 0.5
                     smooth: true
                     asynchronous: true
                     cache: true
                   }
                   Text {
                     textFormat: Text.PlainText
-                    text: modelData.name
+                    text: modelData.label
                     color: root.foreground
                     font.family: Style.font.family
                     font.pixelSize: 13
                     Layout.fillWidth: true
                     elide: Text.ElideRight
+                  }
+                  // Keeps its width when hidden so the columns stay aligned.
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "main"
+                    color: root.subtle
+                    font.family: Style.font.family
+                    font.pixelSize: 10
+                    Layout.preferredWidth: 32
+                    opacity: modelData.main === true ? 1 : 0
+                  }
+                  Text {
+                    textFormat: Text.PlainText
+                    text: modelData.pid
+                    color: root.subtle
+                    font.family: Style.font.family
+                    font.pixelSize: 11
+                    Layout.preferredWidth: 48
+                    horizontalAlignment: Text.AlignRight
                   }
                   Text {
                     textFormat: Text.PlainText
@@ -308,90 +732,19 @@ Item {
               }
             }
           }
-        }
 
-        // ---- Process detail view ----
-        ColumnLayout {
-          Layout.fillWidth: true
-          Layout.fillHeight: true
-          spacing: 8
-          visible: root.selectedPid >= 0
-
-          RowLayout {
-            Layout.fillWidth: true
-            spacing: 8
-            Image {
-              visible: root.selectedProcess() ? !!root.selectedProcess().icon_path : false
-              source: (root.selectedProcess() && root.selectedProcess().icon_path)
-                ? "file://" + encodeURI(root.selectedProcess().icon_path) : ""
-              sourceSize.width: 48
-              sourceSize.height: 48
-              Layout.preferredWidth: 24
-              Layout.preferredHeight: 24
-              Layout.alignment: Qt.AlignVCenter
-              smooth: true
-              asynchronous: true
-            }
-            Text {
-              textFormat: Text.PlainText
-              text: root.selectedProcess() ? root.selectedProcess().name : ("PID " + root.selectedPid)
-              color: root.foreground
-              font.family: Style.font.family
-              font.pixelSize: 15
-              font.bold: true
-              Layout.fillWidth: true
-              elide: Text.ElideRight
-            }
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            Layout.fillWidth: true
-            elide: Text.ElideRight
-            text: {
-              var p = root.selectedProcess()
-              if (!p) return "process exited"
-              var s = "PID " + p.pid
-              if (p.exe_path) s += "    " + p.exe_path
-              if (p.started_at) s += "    started " + Client.fmtDateTime(p.started_at * 1000)
-              return s
-            }
-            color: root.subtle
-            font.family: Style.font.family
-            font.pixelSize: 11
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            Layout.fillWidth: true
-            text: {
-              var p = root.selectedProcess()
-              if (!p) return ""
-              return "CPU " + (p.cpu || 0).toFixed(1) + "%    RAM " + Client.fmtBytes(p.ram || 0) + "    NET " + Client.fmtBps(p.net || 0) + "    DISK " + Client.fmtBps(p.disk || 0)
-            }
-            color: root.foreground
-            font.family: Style.font.family
-            font.pixelSize: 13
-          }
-
-          Item { Layout.fillWidth: true; Layout.fillHeight: true }
+          Item { Layout.fillWidth: true; Layout.fillHeight: true; visible: !root.inApp }
 
           RowLayout {
             Layout.fillWidth: true
             Item { Layout.fillWidth: true }
             Button {
               text: "End"
-              onClicked: {
-                var p = root.selectedProcess()
-                root.confirmKill(root.selectedPid, p ? p.name : ("PID " + root.selectedPid), false)
-              }
+              onClicked: root.confirmKill(false)
             }
             Button {
               text: "Kill"
-              onClicked: {
-                var p = root.selectedProcess()
-                root.confirmKill(root.selectedPid, p ? p.name : ("PID " + root.selectedPid), true)
-              }
+              onClicked: root.confirmKill(true)
             }
           }
         }
@@ -400,16 +753,18 @@ Item {
 
     ConfirmDialog {
       id: killDialog
-      property int pid: 0
+      // Without anchors the dialog is zero-sized and never shows.
+      anchors.fill: parent
+      property var pids: []
       property string procName: ""
       property bool force: false
-      message: (force ? "Force kill " : "End ") + procName + " (" + pid + ")?"
-      confirmText: force ? "Kill" : "End"
+      message: root.killMessage()
+      confirmText: killDialog.force ? "Kill" : "End"
       onCanceled: killDialog.opened = false
       onConfirmed: {
         killDialog.opened = false
         if (root.store && root.store.sock.connected)
-          root.store.sock.write(JSON.stringify({method: "kill", pid: killDialog.pid, signal: killDialog.force ? "kill" : "term"}) + "\n")
+          root.store.sock.write(JSON.stringify({method: "kill", pids: killDialog.pids, signal: killDialog.force ? "kill" : "term"}) + "\n")
       }
     }
   }

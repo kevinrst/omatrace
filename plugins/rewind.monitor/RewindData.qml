@@ -51,6 +51,14 @@ Item {
     if (sock.connected) sock.write(JSON.stringify({method: "proc_history", pid: pid}) + "\n")
   }
 
+  // Whole-app sparkline: one request covering every process in the group.
+  function fetchGroupHistory(pids, rootPid) {
+    procPid = rootPid
+    procPoints = []
+    _pendingPid = rootPid
+    if (sock.connected) sock.write(JSON.stringify({method: "proc_history", pids: pids}) + "\n")
+  }
+
   function clearProc() {
     procPid = -1
     procPoints = []

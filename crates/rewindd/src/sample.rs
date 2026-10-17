@@ -54,20 +54,9 @@ impl State {
             &mut self.icons,
         );
         procs.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap());
-        let mut top = procs;
-        if top.len() > 40 {
-            let rest = top.split_off(40);
-            let mut movers: Vec<_> = rest
-                .into_iter()
-                .filter(|p| p.disk >= 256 * 1024 || p.net >= 256 * 1024)
-                .collect();
-            movers.sort_by(|a, b| (b.disk + b.net).cmp(&(a.disk + a.net)));
-            movers.truncate(20);
-            top.append(&mut movers);
-        }
 
         sample.temp_max_c = read_temp_max();
-        if let Some(ev) = detect_event(self.prev_cpu, &sample, &top) {
+        if let Some(ev) = detect_event(self.prev_cpu, &sample, &procs) {
             if self.events.len() >= EVENT_CAP {
                 self.events.pop_front();
             }
@@ -78,7 +67,7 @@ impl State {
         let snap = Snapshot {
             ts_ms,
             system: sample.clone(),
-            processes: top,
+            processes: procs,
         };
         self.history.push(snap.clone(), self.meta.clone());
         snap
@@ -102,6 +91,37 @@ impl State {
             .get(&pid)
             .map(|d| d.iter().cloned().collect())
             .unwrap_or_default()
+    }
+
+    /// One series for a whole app: the summed own usage of its processes over
+    /// the ring. Summing per snapshot keeps the points aligned even when the
+    /// individual processes started at different times.
+    pub fn proc_history_sum(&self, pids: &[u32]) -> Vec<rewind_core::ProcessSnapshotFull> {
+        use std::collections::HashSet;
+        let set: HashSet<u32> = pids.iter().copied().collect();
+        self.history
+            .snapshots
+            .iter()
+            .map(|snap| {
+                let mut point = rewind_core::ProcessSnapshotFull {
+                    pid: 0,
+                    ts_ms: snap.ts_ms,
+                    cpu: 0.0,
+                    ram: 0,
+                    net: 0,
+                    disk: 0,
+                };
+                for proc_ in &snap.processes {
+                    if set.contains(&proc_.pid) {
+                        point.cpu += proc_.self_cpu;
+                        point.ram += proc_.self_ram;
+                        point.net += proc_.self_net;
+                        point.disk += proc_.self_disk;
+                    }
+                }
+                point
+            })
+            .collect()
     }
 
     pub fn system_history(&self, from_ms: i64) -> Vec<rewind_core::SystemSample> {

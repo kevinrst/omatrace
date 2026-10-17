@@ -7,6 +7,7 @@ use crate::icons::IconIndex;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessMeta {
     pub name: String,
+    pub app_name: String,
     pub exe_path: String,
     pub started_at: u64,
     pub in_terminal: bool,
@@ -17,6 +18,8 @@ pub struct FlatProcess {
     pub pid: u32,
     pub parent_pid: Option<u32>,
     pub name: String,
+    /// App name from the matching `.desktop` entry, empty when none matched.
+    pub app_name: String,
     pub exe_path: String,
     /// Absolute path of the app icon, empty when none matched.
     pub icon_path: String,
@@ -43,18 +46,23 @@ pub fn collect_processes(
     let cpu_count = sys.cpus().len().max(1) as f32;
     let mut out = Vec::new();
     for (pid, proc_) in sys.processes() {
+        if proc_.thread_kind().is_some() {
+            continue;
+        }
         let pid_u32 = pid.as_u32();
-        let meta = metadata_cache
-            .entry(pid_u32)
-            .or_insert_with(|| ProcessMeta {
+        let meta = metadata_cache.entry(pid_u32).or_insert_with(|| {
+            let exe_path = proc_
+                .exe()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            ProcessMeta {
                 name: proc_.name().to_string_lossy().to_string(),
-                exe_path: proc_
-                    .exe()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_default(),
+                app_name: icons.name_for(&exe_path).unwrap_or_default(),
+                exe_path,
                 started_at: proc_.start_time(),
                 in_terminal: in_terminal(pid_u32),
-            });
+            }
+        });
         let self_net = net_map.get(&pid_u32).copied().unwrap_or(0);
 
         let io = proc_.disk_usage();
@@ -67,6 +75,7 @@ pub fn collect_processes(
             pid: pid_u32,
             parent_pid: proc_.parent().map(|p| p.as_u32()),
             name: meta.name.clone(),
+            app_name: meta.app_name.clone(),
             exe_path: meta.exe_path.clone(),
             icon_path,
             started_at: meta.started_at,

@@ -1,8 +1,25 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Default)]
+struct AppEntry {
+    icon: Option<String>,
+    name: Option<String>,
+    rank: u8,
+}
+
+impl AppEntry {
+    fn merge(self, weaker: AppEntry) -> AppEntry {
+        AppEntry {
+            icon: self.icon.or(weaker.icon),
+            name: self.name.or(weaker.name),
+            rank: self.rank,
+        }
+    }
+}
+
 pub struct IconIndex {
-    by_exe: HashMap<String, String>,
+    by_exe: HashMap<String, AppEntry>,
     resolved: HashMap<String, Option<String>>,
     search_dirs: Vec<PathBuf>,
     defaults: Option<(Option<String>, Option<String>)>,
@@ -10,7 +27,7 @@ pub struct IconIndex {
 
 impl IconIndex {
     pub fn load() -> Self {
-        let mut by_exe = HashMap::new();
+        let mut by_exe: HashMap<String, AppEntry> = HashMap::new();
         for dir in desktop_dirs() {
             let Ok(entries) = std::fs::read_dir(&dir) else {
                 continue;
@@ -20,8 +37,20 @@ impl IconIndex {
                 if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
                     continue;
                 }
-                if let Some((exe, icon)) = parse_desktop(&path) {
-                    by_exe.entry(exe).or_insert(icon);
+                if let Some((exe, found)) = parse_desktop(&path) {
+                    match by_exe.get_mut(&exe) {
+                        None => {
+                            by_exe.insert(exe, found);
+                        }
+                        Some(slot) => {
+                            let (primary, secondary) = if found.rank > slot.rank {
+                                (found, std::mem::take(slot))
+                            } else {
+                                (std::mem::take(slot), found)
+                            };
+                            *slot = primary.merge(secondary);
+                        }
+                    }
                 }
             }
         }
@@ -34,12 +63,13 @@ impl IconIndex {
     }
 
     pub fn icon_for(&mut self, exe_path: &str) -> Option<String> {
-        let base = Path::new(exe_path)
-            .file_name()?
-            .to_string_lossy()
-            .to_string();
-        let name = self.by_exe.get(&base)?.clone();
+        let name = self.by_exe.get(&basename(exe_path))?.icon.clone()?;
         self.resolve(&name)
+    }
+
+    /// Human-readable app name (`Name=` of the matched desktop entry).
+    pub fn name_for(&self, exe_path: &str) -> Option<String> {
+        self.by_exe.get(&basename(exe_path))?.name.clone()
     }
 
     pub fn fallback_icon(&mut self, in_terminal: bool) -> Option<String> {
@@ -133,11 +163,20 @@ fn icon_search_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn parse_desktop(path: &Path) -> Option<(String, String)> {
+fn basename(exe_path: &str) -> String {
+    Path::new(exe_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+fn parse_desktop(path: &Path) -> Option<(String, AppEntry)> {
     let text = std::fs::read_to_string(path).ok()?;
     let mut in_entry = false;
     let mut exec = None;
     let mut icon = None;
+    let mut name = None;
+    let mut nodisplay = false;
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('[') {
@@ -158,12 +197,21 @@ fn parse_desktop(path: &Path) -> Option<(String, String)> {
             "Hidden" if value.eq_ignore_ascii_case("true") => return None,
             "Exec" => exec = Some(value.to_string()),
             "Icon" => icon = Some(value.to_string()),
+            "Name" => name = Some(value.to_string()),
+            "NoDisplay" => nodisplay = value.eq_ignore_ascii_case("true"),
             _ => {}
         }
     }
-    let icon = icon.filter(|i| !i.is_empty())?;
     let exe = exec_binary(&exec?).filter(|e| !e.is_empty())?;
-    Some((exe, icon))
+    let found = AppEntry {
+        icon: icon.filter(|i| !i.is_empty()),
+        name: name.filter(|n| !n.is_empty()),
+        rank: u8::from(!nodisplay) + 2 * u8::from(path.file_stem()?.to_str()? == exe),
+    };
+    if found.icon.is_none() && found.name.is_none() {
+        return None;
+    }
+    Some((exe, found))
 }
 
 fn exec_binary(exec: &str) -> Option<String> {
