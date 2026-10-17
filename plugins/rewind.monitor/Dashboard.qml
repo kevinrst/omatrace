@@ -763,8 +763,7 @@ Item {
       onCanceled: killDialog.opened = false
       onConfirmed: {
         killDialog.opened = false
-        if (root.store && root.store.sock.connected)
-          root.store.sock.write(JSON.stringify({method: "kill", pids: killDialog.pids, signal: killDialog.force ? "kill" : "term"}) + "\n")
+        if (root.store) root.store.kill(killDialog.pids, killDialog.force)
       }
     }
   }

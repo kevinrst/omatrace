@@ -65,6 +65,12 @@ Item {
     _pendingPid = -1
   }
 
+  function kill(pids, force) {
+    if (!sock.connected || !pids || !pids.length) return false
+    sock.write(JSON.stringify({method: "kill", pids: pids, signal: force ? "kill" : "term"}) + "\n")
+    return true
+  }
+
   function backToLive() {
     selectedSnapshot = null
     selectedPos = -1
@@ -88,7 +94,11 @@ Item {
         if (!line) return
         var msg = null
         try { msg = JSON.parse(String(line)) } catch (e) { return }
-        if (!msg || !msg.ok) return
+        if (!msg || !msg.ok) {
+          if (msg && msg.pids && msg.killed === 0)
+            console.warn("rewind: could not signal " + msg.pids.join(","))
+          return
+        }
         // Per-process sparkline answering a drill-down (trimmed to the
         // same 60-bar window as the main chart).
         if (msg.points && root._pendingPid >= 0) {
