@@ -115,7 +115,7 @@ Item {
     title: "Rewind"
     visible: false 
     color: root.background
-    implicitWidth: 780
+    implicitWidth: 680
     implicitHeight: 640
     minimumSize: Qt.size(600, 500)
 

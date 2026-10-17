@@ -1,5 +1,5 @@
 use rewind_core::{collect_processes, History, NetTracker, ProcessMeta, Sampler, Snapshot};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Event {
@@ -17,7 +17,10 @@ pub struct State {
     history: History,
     meta: HashMap<u32, ProcessMeta>,
     prev_cpu: f32,
+    events: VecDeque<Event>,
 }
+
+const EVENT_CAP: usize = 200;
 
 impl State {
     pub fn new(interval_secs: u64) -> Self {
@@ -27,11 +30,11 @@ impl State {
             history: History::default(),
             meta: HashMap::new(),
             prev_cpu: 0.0,
+            events: VecDeque::new(),
         }
     }
 
-    /// One tick: refresh, sample, detect event. Returns snapshot + event.
-    pub fn tick(&mut self) -> (Snapshot, HashMap<u32, ProcessMeta>, Option<Event>) {
+    pub fn tick(&mut self) -> Snapshot {
         self.sampler.refresh();
         let ts_ms = chrono::Utc::now().timestamp_millis();
         let mut sample = self.sampler.sample_system(ts_ms);
@@ -45,7 +48,12 @@ impl State {
         top.truncate(40);
 
         sample.temp_max_c = read_temp_max();
-        let event = detect_event(self.prev_cpu, &sample, &top);
+        if let Some(ev) = detect_event(self.prev_cpu, &sample, &top) {
+            if self.events.len() >= EVENT_CAP {
+                self.events.pop_front();
+            }
+            self.events.push_back(ev);
+        }
         self.prev_cpu = sample.cpu_percent;
 
         let snap = Snapshot {
@@ -54,7 +62,7 @@ impl State {
             processes: top,
         };
         self.history.push(snap.clone(), self.meta.clone());
-        (snap, self.meta.clone(), event)
+        snap
     }
 
     pub fn latest(&self) -> Option<Snapshot> {
@@ -75,6 +83,24 @@ impl State {
             .get(&pid)
             .map(|d| d.iter().cloned().collect())
             .unwrap_or_default()
+    }
+
+    pub fn system_history(&self, from_ms: i64) -> Vec<rewind_core::SystemSample> {
+        self.history
+            .samples
+            .iter()
+            .filter(|s| s.ts_ms >= from_ms)
+            .cloned()
+            .collect()
+    }
+
+    pub fn events(&self, from_ms: i64) -> Vec<Event> {
+        self.events
+            .iter()
+            .rev()
+            .filter(|e| e.ts_ms >= from_ms)
+            .cloned()
+            .collect()
     }
 }
 

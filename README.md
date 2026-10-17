@@ -13,7 +13,7 @@ rewind/
   Cargo.toml                  # workspace
   crates/
     rewind-core/               # portable engine (ported from Kova, Linux-fixed)
-    rewindd/                   # daemon: sampling, ring buffers, SQLite 24h, Unix-socket JSON
+    rewindd/                   # daemon: sampling, in-memory ring, Unix-socket JSON
   plugins/
     rewind.monitor/            # Omarchy shell plugin (bar-widget + panel)
 ```
@@ -29,8 +29,8 @@ Timestamps are unix millis; CPU is 0-100 float; RAM/net are bytes and bytes/sec.
 | `get` | `index` | snapshot at ring-buffer index, plus `len` |
 | `len` | — | snapshot count |
 | `proc_history` | `pid` | per-process sparkline (up to 150 pts) |
-| `history` | `from_ms`, `to_ms` (default 24h) | per-minute rollups |
-| `events` | `from_ms`, `to_ms` (default 24h) | threshold crossings, newest first |
+| `history` | `from_ms` (optional) | session samples from the ring, oldest first |
+| `events` | `from_ms` (optional) | recent threshold crossings, newest first |
 | `kill` | `pid`, `signal` (`term`/`kill`) | graceful TERM by default, KILL only on confirm |
 
 ## Status
@@ -51,7 +51,10 @@ Manual equivalent: `cargo build --release -p rewindd`, copy the binary to
 `~/.config/omarchy/plugins/rewind.monitor`. See `install.sh`.
 
 Daemon socket: `$XDG_RUNTIME_DIR/rewind.sock` (JSON lines, see IPC table above).
-DB: `~/.local/share/rewind/history.db` (SQLite, 24h retention, downsampled).
+
+History is in-memory only: the daemon keeps a ring of the last 150 samples
+(~5 min at the default 2s interval), so charts start empty after a reboot and
+fill as it runs. Nothing is written to disk or kept across restarts.
 
 ## Floating dashboard
 
