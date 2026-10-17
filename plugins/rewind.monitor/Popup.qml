@@ -32,13 +32,14 @@ Panel {
   }
 
   KeyboardPanel {
+    id: panel
     anchorItem: root.anchorItem
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: Style.space(340)
-    contentHeight: Style.space(368)
+    contentHeight: panel.fittedContentHeight(innerColumn.implicitHeight + Style.space(16) * 2)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -47,6 +48,7 @@ Panel {
       onTabRequested: function(direction) { root.switchPanel(direction) }
 
       Column {
+        id: innerColumn
         anchors.fill: parent
         anchors.margins: Style.space(16)
         spacing: Style.space(10)
