@@ -113,6 +113,7 @@ Item {
   FloatingWindow {
     id: window
     title: "Rewind"
+    visible: false 
     color: root.background
     implicitWidth: 780
     implicitHeight: 640
