@@ -80,33 +80,31 @@ fn aggregate(procs: &mut [FlatProcess]) {
         index: &HashMap<u32, usize>,
         children: &HashMap<u32, Vec<u32>>,
         procs: &[FlatProcess],
-        memo: &mut HashMap<u32, (f32, u64, u64)>,
-    ) -> (f32, u64, u64) {
+        memo: &mut HashMap<u32, (f32, u64)>,
+    ) -> (f32, u64) {
         if let Some(m) = memo.get(&pid) {
             return *m;
         }
         let i = index[&pid];
         let mut cpu = procs[i].self_cpu;
-        let mut ram = procs[i].self_ram;
         let mut net = procs[i].self_net;
         if let Some(kids) = children.get(&pid) {
             for k in kids {
-                let (c, r, n) = sum(*k, index, children, procs, memo);
+                let (c, n) = sum(*k, index, children, procs, memo);
                 cpu += c;
-                ram += r;
                 net += n;
             }
         }
-        memo.insert(pid, (cpu, ram, net));
-        (cpu, ram, net)
+        memo.insert(pid, (cpu, net));
+        (cpu, net)
     }
     let mut memo = HashMap::new();
     let pids: Vec<u32> = procs.iter().map(|p| p.pid).collect();
     for pid in pids {
-        let (c, r, n) = sum(pid, &index, &children, procs, &mut memo);
+        let (c, n) = sum(pid, &index, &children, procs, &mut memo);
         let i = index[&pid];
         procs[i].cpu = c;
-        procs[i].ram = r;
+        procs[i].ram = procs[i].self_ram;
         procs[i].net = n;
     }
 }
