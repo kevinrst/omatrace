@@ -39,9 +39,63 @@ pub struct Sampler {
     disk_index: Option<usize>,
     prev_rx: u64,
     prev_tx: u64,
-    prev_disk_read: u64,
-    prev_disk_write: u64,
+    disk_io: DiskIo,
     interval_secs: u64,
+}
+
+struct DiskIo {
+    devices: Vec<String>,
+    prev_read: u64,
+    prev_write: u64,
+}
+
+impl DiskIo {
+    fn new() -> Self {
+        let mut devices = Vec::new();
+        if let Ok(entries) = std::fs::read_dir("/sys/block") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if !name.starts_with("loop")
+                    && !name.starts_with("ram")
+                    && !name.starts_with("zram")
+                    && !name.starts_with("dm-")
+                    && !name.starts_with("md")
+                    && !name.starts_with("sr")
+                    && !name.starts_with("nbd")
+                    && !name.starts_with("fd")
+                {
+                    devices.push(name);
+                }
+            }
+        }
+        Self {
+            devices,
+            prev_read: 0,
+            prev_write: 0,
+        }
+    }
+
+    fn rates(&mut self, interval_secs: u64) -> (u64, u64) {
+        let Ok(text) = std::fs::read_to_string("/proc/diskstats") else {
+            return (0, 0);
+        };
+        let mut sectors_read = 0u64;
+        let mut sectors_written = 0u64;
+        for line in text.lines() {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() < 10 || !self.devices.iter().any(|d| d == f[2]) {
+                continue;
+            }
+            sectors_read += f[5].parse::<u64>().unwrap_or(0);
+            sectors_written += f[9].parse::<u64>().unwrap_or(0);
+        }
+        let read_bps = sectors_read.saturating_sub(self.prev_read) * 512 / interval_secs.max(1);
+        let write_bps =
+            sectors_written.saturating_sub(self.prev_write) * 512 / interval_secs.max(1);
+        self.prev_read = sectors_read;
+        self.prev_write = sectors_written;
+        (read_bps, write_bps)
+    }
 }
 
 impl Sampler {
@@ -62,8 +116,7 @@ impl Sampler {
             disk_index,
             prev_rx: 0,
             prev_tx: 0,
-            prev_disk_read: 0,
-            prev_disk_write: 0,
+            disk_io: DiskIo::new(),
             interval_secs: interval_secs.max(1),
         }
     }
@@ -80,7 +133,12 @@ impl Sampler {
         &self.sys
     }
 
+    pub fn interval_secs(&self) -> u64 {
+        self.interval_secs
+    }
+
     pub fn sample_system(&mut self, ts_ms: i64) -> SystemSample {
+        let disk_rates = self.disk_io.rates(self.interval_secs);
         sample_system(
             &self.sys,
             &self.disks,
@@ -89,6 +147,8 @@ impl Sampler {
             &mut self.prev_rx,
             &mut self.prev_tx,
             self.interval_secs,
+            disk_rates,
+            ts_ms,
         )
     }
 }
@@ -101,6 +161,8 @@ pub fn sample_system(
     prev_rx: &mut u64,
     prev_tx: &mut u64,
     interval_secs: u64,
+    disk_rates: (u64, u64),
+    ts_ms: i64,
 ) -> SystemSample {
     let cpu_percent = sys.global_cpu_usage();
     let cpu_per_core: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
@@ -125,7 +187,7 @@ pub fn sample_system(
     *prev_tx = tx;
 
     SystemSample {
-        ts_ms: chrono::Utc::now().timestamp_millis(),
+        ts_ms,
         cpu_percent,
         cpu_per_core,
         load_avg_1: load.one,
@@ -137,8 +199,8 @@ pub fn sample_system(
         disk: DiskStat {
             used: disk_used,
             total: disk_total,
-            read_bps: 0,
-            write_bps: 0,
+            read_bps: disk_rates.0,
+            write_bps: disk_rates.1,
         },
         net: NetStat { down_bps, up_bps },
         temp_max_c: None,

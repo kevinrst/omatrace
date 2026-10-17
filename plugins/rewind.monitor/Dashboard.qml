@@ -26,7 +26,9 @@ Item {
   // System-wide chart series: raw values + daemon index per bar.
   readonly property var series: {
     if (!store) return {vals: [], idx: [], max: 100, labels: []}
-    var h = (root.tab === "cpu" ? store.cpuHist : (root.tab === "ram" ? store.ramHist : store.netHist)) || []
+    var h = (root.tab === "cpu" ? store.cpuHist
+      : root.tab === "ram" ? store.ramHist
+      : root.tab === "net" ? store.netHist : store.diskHist) || []
     var vals = h.map(function(p) { return p.v })
     var idx = h.map(function(p) { return p.idx })
     if (root.tab === "cpu") return finishCpu(vals, idx)
@@ -34,14 +36,18 @@ Item {
       var total = (store.snapshot && store.snapshot.system.ram_total) || 1
       return {vals: vals, idx: idx, max: total, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Client.fmtBytes(total * r) })}
     }
-    var nm = Math.max(store.netMax, 1)
+    var nm = Math.max(root.tab === "net" ? store.netMax : store.diskMax, 1)
     return {vals: vals, idx: idx, max: nm, labels: [1, 0.75, 0.5, 0.25].map(function(r) { return Client.fmtBps(nm * r) })}
   }
 
   // Selected process series (from proc_history points).
   readonly property var procSeries: {
     var pts = (store && store.procPoints) || []
-    var vals = pts.map(function(p) { return root.tab === "cpu" ? p.cpu : (root.tab === "ram" ? p.ram : p.net) })
+    var vals = pts.map(function(p) {
+      return root.tab === "cpu" ? p.cpu
+        : root.tab === "ram" ? p.ram
+        : root.tab === "net" ? p.net : p.disk
+    })
     if (root.tab === "cpu") return finishCpu(vals, [])
     if (root.tab === "ram") {
       var total = (store && store.snapshot && store.snapshot.system.ram_total) || 1
@@ -62,7 +68,8 @@ Item {
   function fmtVal(tab, proc) {
     if (tab === "cpu") return (proc.cpu || 0).toFixed(1) + "%"
     if (tab === "ram") return Client.fmtBytes(proc.ram || 0)
-    return Client.fmtBps(proc.net || 0)
+    if (tab === "net") return Client.fmtBps(proc.net || 0)
+    return Client.fmtBps(proc.disk || 0)
   }
 
   function fmtTime(ts) {
@@ -174,7 +181,7 @@ Item {
             anchors.centerIn: parent
             spacing: 4
             Repeater {
-              model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"]]
+              model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"], ["disk", "Disk"]]
               delegate: Button {
                 required property var modelData
                 text: modelData[1]
@@ -220,6 +227,7 @@ Item {
           text: "CPU " + (sys.cpu_percent || 0).toFixed(0) + "%    "
             + "RAM " + Client.fmtBytes(sys.ram_used || 0) + " / " + Client.fmtBytes(sys.ram_total || 1) + "    "
             + "NET ↓" + Client.fmtBps((sys.net || {}).down_bps || 0) + " ↑" + Client.fmtBps((sys.net || {}).up_bps || 0) + "    "
+            + "DISK ↓" + Client.fmtBps((sys.disk || {}).read_bps || 0) + " ↑" + Client.fmtBps((sys.disk || {}).write_bps || 0) + "    "
             + "LOAD " + (sys.load_avg_1 || 0).toFixed(2)
           color: root.subtle
           font.family: Style.font.family
@@ -335,7 +343,7 @@ Item {
             text: {
               var p = root.selectedProcess()
               if (!p) return ""
-              return "CPU " + (p.cpu || 0).toFixed(1) + "%    RAM " + Client.fmtBytes(p.ram || 0) + "    NET " + Client.fmtBps(p.net || 0)
+              return "CPU " + (p.cpu || 0).toFixed(1) + "%    RAM " + Client.fmtBytes(p.ram || 0) + "    NET " + Client.fmtBps(p.net || 0) + "    DISK " + Client.fmtBps(p.disk || 0)
             }
             color: root.foreground
             font.family: Style.font.family

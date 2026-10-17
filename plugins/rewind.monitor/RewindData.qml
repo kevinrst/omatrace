@@ -10,9 +10,11 @@ Item {
   property var cpuHist: [] // [{v, idx}]
   property var ramHist: []
   property var netHist: []
+  property var diskHist: []
   property int histLen: 0
   property bool offline: true
   property real netMax: 1
+  property real diskMax: 1
 
   // Snapshot selected by clicking a chart bar. Null = live.
   property var selectedSnapshot: null
@@ -111,9 +113,13 @@ Item {
           root.cpuHist = root.pushCapped(root.cpuHist, {v: sys.cpu_percent || 0, idx: idx})
           root.ramHist = root.pushCapped(root.ramHist, {v: sys.ram_used || 0, idx: idx})
           root.netHist = root.pushCapped(root.netHist, {v: (sys.net ? (sys.net.down_bps + sys.net.up_bps) : 0), idx: idx})
+          root.diskHist = root.pushCapped(root.diskHist, {v: (sys.disk ? (sys.disk.read_bps + sys.disk.write_bps) : 0), idx: idx})
           var m = 1
           for (var i = 0; i < root.netHist.length; i++) m = Math.max(m, root.netHist[i].v)
           root.netMax = m
+          var dm = 1
+          for (var j = 0; j < root.diskHist.length; j++) dm = Math.max(dm, root.diskHist[j].v)
+          root.diskMax = dm
         }
       }
     }

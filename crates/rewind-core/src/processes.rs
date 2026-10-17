@@ -20,16 +20,19 @@ pub struct FlatProcess {
     pub self_cpu: f32,
     pub self_ram: u64,
     pub self_net: u64,
+    pub self_disk: u64,
     /// Including descendants.
     pub cpu: f32,
     pub ram: u64,
     pub net: u64,
+    pub disk: u64,
 }
 
 pub fn collect_processes(
     sys: &System,
     net_map: &HashMap<u32, u64>,
     metadata_cache: &mut HashMap<u32, ProcessMeta>,
+    interval_secs: u64,
 ) -> Vec<FlatProcess> {
     let cpu_count = sys.cpus().len().max(1) as f32;
     let mut out = Vec::new();
@@ -46,6 +49,9 @@ pub fn collect_processes(
                 started_at: proc_.start_time(),
             });
         let self_net = net_map.get(&pid_u32).copied().unwrap_or(0);
+
+        let io = proc_.disk_usage();
+        let self_disk = (io.read_bytes + io.written_bytes) / interval_secs.max(1);
         out.push(FlatProcess {
             pid: pid_u32,
             parent_pid: proc_.parent().map(|p| p.as_u32()),
@@ -55,9 +61,11 @@ pub fn collect_processes(
             self_cpu: proc_.cpu_usage() / cpu_count,
             self_ram: proc_.memory(),
             self_net,
+            self_disk,
             cpu: proc_.cpu_usage() / cpu_count,
             ram: proc_.memory(),
             net: self_net,
+            disk: self_disk,
         });
     }
     aggregate(&mut out);
@@ -106,5 +114,6 @@ fn aggregate(procs: &mut [FlatProcess]) {
         procs[i].cpu = c;
         procs[i].ram = procs[i].self_ram;
         procs[i].net = n;
+        procs[i].disk = procs[i].self_disk;
     }
 }

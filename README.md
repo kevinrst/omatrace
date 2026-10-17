@@ -33,6 +33,21 @@ Timestamps are unix millis; CPU is 0-100 float; RAM/net are bytes and bytes/sec.
 | `events` | `from_ms` (optional) | recent threshold crossings, newest first |
 | `kill` | `pid`, `signal` (`term`/`kill`) | graceful TERM by default, KILL only on confirm |
 
+## Metrics
+
+| metric | source | per process |
+|---|---|---|
+| CPU | `/proc/stat`, sysinfo | yes, rolled up over the process tree |
+| Memory | sysinfo | yes, own RSS only (no tree sum — shared pages would double-count) |
+| Network | socket table / total throughput split | yes, estimated share, rolled up |
+| Disk I/O | `/proc/diskstats` (whole disks) | yes, own I/O from `/proc/<pid>/io` |
+
+Disk is own-I/O per process on purpose: every process descends from pid 1, so
+tree-summing would credit the whole system's traffic to `systemd`. Root-owned
+processes can't be read unprivileged and report 0. Battery is not tracked —
+Linux has no per-process energy accounting, only system-wide
+`/sys/class/power_supply`.
+
 ## Status
 
 Scaffold v0.1. Daemon runs, QML plugin loads with mock fallback

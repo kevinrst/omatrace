@@ -18,6 +18,7 @@ pub struct ProcessSnapshotFull {
     pub cpu: f32,
     pub ram: u64,
     pub net: u64,
+    pub disk: u64,
 }
 
 // Bounded in-memory history: full-res ring (~5 min at 2s) + event list.
@@ -59,6 +60,7 @@ impl History {
                 cpu: p.cpu,
                 ram: p.ram,
                 net: p.net,
+                disk: p.disk,
             });
             if self.per_process.len() > 512 {
                 break;

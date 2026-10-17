@@ -38,7 +38,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: Style.space(340)
-    contentHeight: Style.space(296)
+    contentHeight: Style.space(368)
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -56,7 +56,8 @@ Panel {
           model: [
             {tab: "cpu", label: "CPU", value: store && store.snapshot ? Math.round(store.snapshot.system.cpu_percent) + "%" : "—", hist: store ? store.cpuHist : [], max: 100},
             {tab: "ram", label: "MEMORY", value: store && store.snapshot ? Client.fmtBytes(store.snapshot.system.ram_used) : "—", hist: store ? store.ramHist : [], max: store && store.snapshot ? store.snapshot.system.ram_total : 1},
-            {tab: "net", label: "NETWORK", value: store && store.snapshot && store.snapshot.system.net ? Client.fmtBps(store.snapshot.system.net.down_bps + store.snapshot.system.net.up_bps) : "—", hist: store ? store.netHist : [], max: store ? Math.max(store.netMax, 1) : 1}
+            {tab: "net", label: "NETWORK", value: store && store.snapshot && store.snapshot.system.net ? Client.fmtBps(store.snapshot.system.net.down_bps + store.snapshot.system.net.up_bps) : "—", hist: store ? store.netHist : [], max: store ? Math.max(store.netMax, 1) : 1},
+            {tab: "disk", label: "DISK I/O", value: store && store.snapshot && store.snapshot.system.disk ? Client.fmtBps(store.snapshot.system.disk.read_bps + store.snapshot.system.disk.write_bps) : "—", hist: store ? store.diskHist : [], max: store ? Math.max(store.diskMax, 1) : 1}
           ]
           delegate: Item {
             required property var modelData
