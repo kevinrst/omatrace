@@ -48,6 +48,20 @@ processes can't be read unprivileged and report 0. Battery is not tracked —
 Linux has no per-process energy accounting, only system-wide
 `/sys/class/power_supply`.
 
+## Icons
+
+Process icons come from the freedesktop chain: executable basename → `.desktop`
+`Exec=` → `Icon=` → a file in the icon theme (`hicolor`, `Adwaita`, `Yaru`,
+`pixmaps`, plus flatpak and `~/.local/share` exports), SVG first. The index is
+built at daemon start, so a newly installed app needs
+`systemctl --user restart rewindd`.
+
+Processes with no matching entry get a default: `utilities-terminal` when the
+process owns a pseudo-terminal (`pts` major 136–143 in `/proc/<pid>/stat`),
+`system-run` (a plain gear) otherwise (daemons, kernel threads, VT console).
+Backgrounded terminal servers such as `tmux: server` detach from their tty and
+fall into the generic bucket.
+
 ## Status
 
 Scaffold v0.1. Daemon runs, QML plugin loads with mock fallback

@@ -275,6 +275,17 @@ Item {
                   id: row
                   width: parent.width
                   spacing: 8
+                  Image {
+                    source: modelData.icon_path ? "file://" + encodeURI(modelData.icon_path) : ""
+                    sourceSize.width: 32
+                    sourceSize.height: 32
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    Layout.alignment: Qt.AlignVCenter
+                    smooth: true
+                    asynchronous: true
+                    cache: true
+                  }
                   Text {
                     textFormat: Text.PlainText
                     text: modelData.name
@@ -308,6 +319,19 @@ Item {
 
           RowLayout {
             Layout.fillWidth: true
+            spacing: 8
+            Image {
+              visible: root.selectedProcess() ? !!root.selectedProcess().icon_path : false
+              source: (root.selectedProcess() && root.selectedProcess().icon_path)
+                ? "file://" + encodeURI(root.selectedProcess().icon_path) : ""
+              sourceSize.width: 48
+              sourceSize.height: 48
+              Layout.preferredWidth: 24
+              Layout.preferredHeight: 24
+              Layout.alignment: Qt.AlignVCenter
+              smooth: true
+              asynchronous: true
+            }
             Text {
               textFormat: Text.PlainText
               text: root.selectedProcess() ? root.selectedProcess().name : ("PID " + root.selectedPid)

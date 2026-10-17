@@ -2,11 +2,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use sysinfo::System;
 
+use crate::icons::IconIndex;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessMeta {
     pub name: String,
     pub exe_path: String,
     pub started_at: u64,
+    pub in_terminal: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +18,8 @@ pub struct FlatProcess {
     pub parent_pid: Option<u32>,
     pub name: String,
     pub exe_path: String,
+    /// Absolute path of the app icon, empty when none matched.
+    pub icon_path: String,
     pub started_at: u64,
     /// Own usage.
     pub self_cpu: f32,
@@ -33,6 +38,7 @@ pub fn collect_processes(
     net_map: &HashMap<u32, u64>,
     metadata_cache: &mut HashMap<u32, ProcessMeta>,
     interval_secs: u64,
+    icons: &mut IconIndex,
 ) -> Vec<FlatProcess> {
     let cpu_count = sys.cpus().len().max(1) as f32;
     let mut out = Vec::new();
@@ -47,16 +53,22 @@ pub fn collect_processes(
                     .map(|p| p.to_string_lossy().to_string())
                     .unwrap_or_default(),
                 started_at: proc_.start_time(),
+                in_terminal: in_terminal(pid_u32),
             });
         let self_net = net_map.get(&pid_u32).copied().unwrap_or(0);
 
         let io = proc_.disk_usage();
         let self_disk = (io.read_bytes + io.written_bytes) / interval_secs.max(1);
+        let icon_path = icons
+            .icon_for(&meta.exe_path)
+            .or_else(|| icons.fallback_icon(meta.in_terminal))
+            .unwrap_or_default();
         out.push(FlatProcess {
             pid: pid_u32,
             parent_pid: proc_.parent().map(|p| p.as_u32()),
             name: meta.name.clone(),
             exe_path: meta.exe_path.clone(),
+            icon_path,
             started_at: meta.started_at,
             self_cpu: proc_.cpu_usage() / cpu_count,
             self_ram: proc_.memory(),
@@ -70,6 +82,24 @@ pub fn collect_processes(
     }
     aggregate(&mut out);
     out
+}
+
+fn in_terminal(pid: u32) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    let Some((_, rest)) = stat.rsplit_once(')') else {
+        return false;
+    };
+    let Some(tty_nr) = rest
+        .split_whitespace()
+        .nth(4)
+        .and_then(|v| v.parse::<u64>().ok())
+    else {
+        return false;
+    };
+    let major = (tty_nr >> 8) & 0xff;
+    (136..=143).contains(&major)
 }
 
 fn aggregate(procs: &mut [FlatProcess]) {

@@ -1,4 +1,6 @@
-use rewind_core::{collect_processes, History, NetTracker, ProcessMeta, Sampler, Snapshot};
+use rewind_core::{
+    collect_processes, History, IconIndex, NetTracker, ProcessMeta, Sampler, Snapshot,
+};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -16,6 +18,7 @@ pub struct State {
     net: NetTracker,
     history: History,
     meta: HashMap<u32, ProcessMeta>,
+    icons: IconIndex,
     prev_cpu: f32,
     events: VecDeque<Event>,
 }
@@ -29,6 +32,7 @@ impl State {
             net: NetTracker::new(),
             history: History::default(),
             meta: HashMap::new(),
+            icons: IconIndex::load(),
             prev_cpu: 0.0,
             events: VecDeque::new(),
         }
@@ -42,8 +46,13 @@ impl State {
         let total_bps = sample.net.down_bps + sample.net.up_bps;
         let net_map = self.net.update(total_bps);
         let interval = self.sampler.interval_secs();
-        let mut procs =
-            collect_processes(self.sampler.system(), &net_map, &mut self.meta, interval);
+        let mut procs = collect_processes(
+            self.sampler.system(),
+            &net_map,
+            &mut self.meta,
+            interval,
+            &mut self.icons,
+        );
         procs.sort_by(|a, b| b.cpu.partial_cmp(&a.cpu).unwrap());
         let mut top = procs;
         if top.len() > 40 {
