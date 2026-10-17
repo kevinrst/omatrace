@@ -41,16 +41,14 @@ when daemon is offline.
 ## Quick start
 
 ```bash
-cd rewind
-cargo build -p rewindd
-./target/debug/rewindd --socket $XDG_RUNTIME_DIR/rewind.sock --db ~/.local/share/rewind/history.db
-
-# link plugin for testing
-omarchy plugin validate ./plugins/rewind.monitor
-mkdir -p ~/.config/omarchy/plugins/rewind.monitor
-cp -r plugins/rewind.monitor/* ~/.config/omarchy/plugins/rewind.monitor/
-omarchy plugin enable rewind.monitor
+./install.sh
+# then: omarchy plugin enable rewind.monitor --section right
+#       omarchy restart shell
 ```
+
+Manual equivalent: `cargo build --release -p rewindd`, copy the binary to
+`~/.local/bin`, the unit to `~/.config/systemd/user`, the plugin to
+`~/.config/omarchy/plugins/rewind.monitor`. See `install.sh`.
 
 Daemon socket: `$XDG_RUNTIME_DIR/rewind.sock` (JSON lines, see IPC table above).
 DB: `~/.local/share/rewind/history.db` (SQLite, 24h retention, downsampled).
