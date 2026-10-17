@@ -124,8 +124,20 @@ Item {
       }
     }
     onConnectionStateChanged: {
-      if (!sock.connected) root.offline = true
+      if (sock.connected) {
+        root.offline = false
+        root.pollLatest()
+      } else {
+        root.offline = true
+      }
     }
+  }
+
+  Timer {
+    interval: 2000
+    running: true
+    repeat: true
+    onTriggered: if (!sock.connected) sock.connected = true
   }
 
   Timer {
