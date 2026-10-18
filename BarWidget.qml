@@ -10,7 +10,8 @@ BarWidget {
   id: root
   moduleName: "kevin.omatrace"
 
-  readonly property string iconGlyph: ""
+  // "Poll" bars glyph - verified present in the installed Nerd Font.
+  readonly property string iconGlyph: "󰐟"
 
   readonly property bool opened: popupLoader.item ? popupLoader.item.opened === true : false
 
