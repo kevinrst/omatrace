@@ -26,7 +26,6 @@ Item {
   readonly property color foreground: Color.foreground
   readonly property color background: Color.background
   readonly property color subtle: Color.muted
-  readonly property color cardBorder: Util.alpha(Color.foreground, 0.1)
 
   readonly property var snap: (store && (store.selectedSnapshot || store.snapshot)) || Client.mockSnapshot()
   readonly property var sys: snap.system
@@ -322,24 +321,6 @@ Item {
     return p ? p.icon_path : ""
   }
 
-  function detailMeta() {
-    if (root.inApp) {
-      var g = root.selectedGroupData()
-      if (!g) return ""
-      var r = root.groupRoot(g)
-      var s = g.members.length + " processes    main PID " + r.pid
-      if (r.exe_path) s += "    " + r.exe_path
-      if (r.started_at) s += "    started " + Client.fmtDateTime(r.started_at * 1000)
-      return s
-    }
-    var p = root.selectedProcess()
-    if (!p) return "process exited"
-    var t = "PID " + p.pid
-    if (p.exe_path) t += "    " + p.exe_path
-    if (p.started_at) t += "    started " + Client.fmtDateTime(p.started_at * 1000)
-    return t
-  }
-
   function detailMetrics() {
     if (root.inApp) {
       var g = root.selectedGroupData()
@@ -392,6 +373,61 @@ Item {
     function onKilled(count) { if (count > 0) root.back() }
   }
 
+  // KPI tiles: whole-system numbers, or the selection's when a view is open.
+  readonly property var kpiTiles: {
+    var net = (sys && sys.net) || {}
+    var disk = (sys && sys.disk) || {}
+    if (root.inDetail) {
+      var g = root.inApp ? root.selectedGroupData() : null
+      var p = root.inProcess ? root.selectedProcess() : null
+      var s = g || p
+      if (!s) return []
+      return [
+        {label: "CPU", value: (s.cpu || 0).toFixed(1) + "%", sub: p ? "PID " + p.pid : g.members.length + " PROCESSES"},
+        {label: "MEMORY", value: Client.fmtBytes(s.ram || 0), sub: p ? "SELF RSS" : "SUM OF SELF"},
+        {label: "NETWORK", value: Client.fmtBps(s.net || 0), sub: "EST. SHARE"},
+        {label: "DISK I/O", value: Client.fmtBps(s.disk || 0), sub: "OWN I/O"}
+      ]
+    }
+    return [
+      {label: "CPU", value: (sys.cpu_percent || 0).toFixed(0) + "%", sub: "LOAD " + (sys.load_avg_1 || 0).toFixed(2)},
+      {label: "MEMORY", value: Client.fmtBytes(sys.ram_used || 0), sub: "/ " + Client.fmtBytes((sys && sys.ram_total) || 1)},
+      {label: "NETWORK", value: Client.fmtBps(net.down_bps || 0), sub: "↑ " + Client.fmtBps(net.up_bps || 0)},
+      {label: "DISK I/O", value: Client.fmtBps(disk.read_bps || 0), sub: "↑ " + Client.fmtBps(disk.write_bps || 0)}
+    ]
+  }
+
+  function tabLabel(t) {
+    return t === "cpu" ? "CPU" : t === "ram" ? "RAM" : t === "net" ? "NETWORK" : "DISK I/O"
+  }
+
+  // Header meta lines for the detail view: count/identity on the first
+  // line, then the start time before the path so long paths elide and
+  // the time always stays visible.
+  readonly property string metaLine1: {
+    if (!root.inDetail) return ""
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      var r = g ? root.groupRoot(g) : null
+      return g ? g.members.length + " PROCESSES · MAIN PID " + r.pid : ""
+    }
+    var p = root.selectedProcess()
+    return p ? "PID " + p.pid : "PROCESS EXITED"
+  }
+  readonly property string metaLine2: {
+    var r = null
+    if (root.inApp) {
+      var g = root.selectedGroupData()
+      r = g ? root.groupRoot(g) : null
+    } else {
+      r = root.selectedProcess()
+    }
+    if (!r) return ""
+    var t = r.started_at ? "STARTED " + Client.fmtDateTime(r.started_at * 1000).toUpperCase() : ""
+    if (r.exe_path) t += (t ? "  ·  " : "") + r.exe_path
+    return t
+  }
+
   FloatingWindow {
     id: window
     title: "Omatrace"
@@ -416,7 +452,7 @@ Item {
         }
       }
 
-      // Window outline — same spec as the popup border.
+      // Window frame — same border spec as the popup cards.
       Rectangle {
         anchors.fill: parent
         color: "transparent"
@@ -427,56 +463,135 @@ Item {
 
       ColumnLayout {
         anchors.fill: parent
-        anchors.margins: 20
-        spacing: 12
+        anchors.margins: Style.space(14)
+        spacing: Style.space(10)
 
-        // Top row: back button in detail view only.
+        // Header: back button and the selected app/process.
         RowLayout {
           Layout.fillWidth: true
-          Layout.preferredHeight: 36
           visible: root.inDetail
+          spacing: Style.space(8)
           Button {
+            visible: root.inDetail
             text: "‹ Back"
+            fontSize: Style.font.caption
             onClicked: root.back()
           }
-          Item { Layout.fillWidth: true }
-        }
-
-        // Tabs 
-        Item {
-          Layout.fillWidth: true
-          Layout.preferredHeight: 36
-          Text {
-            textFormat: Text.PlainText
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            visible: root.historyMode
-            text: root.historyMode ? root.fmtTime(snap.ts_ms) : ""
-            color: root.subtle
-            font.family: Style.font.family
-            font.pixelSize: 12
+          Image {
+            visible: root.inDetail && root.detailIcon() !== ""
+            source: root.inDetail && root.detailIcon() ? "file://" + encodeURI(root.detailIcon()) : ""
+            sourceSize.width: 48
+            sourceSize.height: 48
+            Layout.preferredWidth: 20
+            Layout.preferredHeight: 20
+            smooth: true
+            asynchronous: true
           }
-          RowLayout {
-            anchors.centerIn: parent
-            spacing: 4
-            Repeater {
-              model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"], ["disk", "Disk"]]
-              delegate: Button {
-                required property var modelData
-                text: modelData[1]
-                onClicked: root.tab = modelData[0]
-              }
+          ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 1
+            Text {
+              textFormat: Text.PlainText
+              Layout.fillWidth: true
+              elide: Text.ElideRight
+              text: root.detailTitle()
+              color: root.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+            Text {
+              textFormat: Text.PlainText
+              Layout.fillWidth: true
+              elide: Text.ElideRight
+              visible: text !== ""
+              text: root.metaLine1
+              color: root.subtle
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1
+            }
+            Text {
+              textFormat: Text.PlainText
+              Layout.fillWidth: true
+              elide: Text.ElideRight
+              visible: text !== ""
+              text: root.metaLine2
+              color: root.subtle
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
             }
           }
         }
 
-        // Chart card
+        // Tabs: one segmented pill per metric. While scrubbing history,
+        // the snapshot time sits on the right with a button back to live.
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(4)
+          Repeater {
+            model: [["cpu", "CPU"], ["ram", "Memory"], ["net", "Network"], ["disk", "Disk"]]
+            // Outlined pill; the selected tab uses the theme accent.
+            delegate: MouseArea {
+              required property var modelData
+              readonly property bool active: root.tab === modelData[0]
+              implicitWidth: pillLabel.implicitWidth + Style.space(10) * 2
+              implicitHeight: pillLabel.implicitHeight + Style.space(6) * 2
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.tab = modelData[0]
+
+              Rectangle {
+                anchors.fill: parent
+                radius: Style.cornerRadius
+                color: parent.pressed ? Style.pressedFillFor(root.foreground, Color.accent)
+                  : parent.active ? Style.selectedAccentFill
+                  : parent.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent)
+                  : "transparent"
+                border.width: 1
+                border.color: parent.active ? Color.accent
+                  : parent.containsMouse ? Style.hoverBorderFor(root.foreground, Color.accent)
+                  : Style.normalBorderFor(root.foreground, Color.accent)
+              }
+              Text {
+                id: pillLabel
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: modelData[1]
+                color: parent.active ? Color.accent : root.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+          Item { Layout.fillWidth: true }
+          Row {
+            visible: root.historyMode
+            spacing: Style.space(6)
+            Text {
+              textFormat: Text.PlainText
+              anchors.verticalCenter: parent.verticalCenter
+              text: root.fmtTime(snap.ts_ms)
+              color: root.subtle
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+            Button {
+              text: "Live"
+              fontSize: Style.font.caption
+              horizontalPadding: Style.spacing.sm
+              onClicked: { if (store) store.backToLive() }
+            }
+          }
+        }
+
+        // Chart
         Rectangle {
           Layout.fillWidth: true
           Layout.preferredHeight: 196
           color: "transparent"
-          border.width: 1
-          border.color: root.cardBorder
           radius: Style.cornerRadius
           clip: true
 
@@ -498,23 +613,58 @@ Item {
           }
         }
 
-        // Current values line
-        Text {
-          textFormat: Text.PlainText
+        // KPI tiles: whole system, or the selection when a view is open.
+        RowLayout {
           Layout.fillWidth: true
-          elide: Text.ElideRight
-          text: "CPU " + (sys.cpu_percent || 0).toFixed(0) + "%    "
-            + "RAM " + Client.fmtBytes(sys.ram_used || 0) + " / " + Client.fmtBytes(sys.ram_total || 1) + "    "
-            + "NET ↓" + Client.fmtBps((sys.net || {}).down_bps || 0) + " ↑" + Client.fmtBps((sys.net || {}).up_bps || 0) + "    "
-            + "DISK ↓" + Client.fmtBps((sys.disk || {}).read_bps || 0) + " ↑" + Client.fmtBps((sys.disk || {}).write_bps || 0) + "    "
-            + "LOAD " + (sys.load_avg_1 || 0).toFixed(2)
-          color: root.subtle
-          font.family: Style.font.family
-          font.pixelSize: 12
-        }
-
-        PanelSeparator {
-          Layout.fillWidth: true
+          spacing: Style.space(6)
+          Repeater {
+            model: root.kpiTiles
+            delegate: Rectangle {
+              required property var modelData
+              Layout.fillWidth: true
+              Layout.preferredHeight: 64
+              radius: Style.cornerRadius
+              color: Style.normalFillFor(root.foreground, Color.accent)
+              border.width: 1
+              border.color: Util.alpha(root.foreground, 0.06)
+              ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Style.space(8)
+                spacing: 1
+                Text {
+                  textFormat: Text.PlainText
+                  text: modelData.label
+                  color: root.subtle
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  font.letterSpacing: 1
+                  Layout.fillWidth: true
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  text: modelData.value
+                  color: root.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.display
+                  font.bold: true
+                  Layout.fillWidth: true
+                  elide: Text.ElideRight
+                }
+                Text {
+                  visible: modelData.sub !== ""
+                  textFormat: Text.PlainText
+                  text: modelData.sub
+                  color: root.subtle
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                  Layout.fillWidth: true
+                  elide: Text.ElideRight
+                }
+              }
+            }
+          }
         }
 
         // ---- Process list view ----
@@ -530,12 +680,36 @@ Item {
             onTextChanged: root.filter = text
           }
 
+          Item {
+            Layout.fillWidth: true
+            implicitHeight: Math.max(listHeader.implicitHeight, listValue.implicitHeight)
+            PanelSectionHeader {
+              id: listHeader
+              text: "PROCESS"
+              foreground: root.foreground
+              fontFamily: Style.font.family
+              anchors.left: parent.left
+              anchors.leftMargin: 8
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+              id: listValue
+              textFormat: Text.PlainText
+              text: root.tabLabel(root.tab)
+              color: root.subtle
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              anchors.right: parent.right
+              anchors.rightMargin: 8
+              anchors.verticalCenter: parent.verticalCenter
+            }
+          }
+
           Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             color: "transparent"
-            border.width: 1
-            border.color: root.cardBorder
             radius: Style.cornerRadius
 
             ListView {
@@ -546,14 +720,23 @@ Item {
               delegate: MouseArea {
                 required property var modelData
                 width: ListView.view.width - 16
-                height: listRow.height
+                height: listRow.implicitHeight + Style.space(4)
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: function(mouse) { root.activateRow(modelData, mouse.x) }
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: Style.hoverFillFor(root.foreground, Color.accent)
+                  opacity: parent.containsMouse ? 1 : 0
+                }
 
                 RowLayout {
                   id: listRow
                   width: parent.width
-                  spacing: 8
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(6)
                   Item {
                     Layout.preferredWidth: root.disclosureWidth
                     Layout.leftMargin: root.rowIndent(modelData)
@@ -574,7 +757,7 @@ Item {
                     Layout.preferredWidth: 16
                     Layout.preferredHeight: 16
                     Layout.alignment: Qt.AlignVCenter
-                    opacity: modelData.kind === "group" ? 1.0 : 0.5
+                    opacity: modelData.kind === "group" ? 1.0 : 0.55
                     smooth: true
                     asynchronous: true
                     cache: true
@@ -582,15 +765,15 @@ Item {
                   TextMetrics {
                     id: nameMetrics
                     font.family: Style.font.family
-                    font.pixelSize: modelData.kind === "group" ? 13 : 12
                     text: modelData.label
+                    font.pixelSize: modelData.kind === "group" ? Style.font.body : Style.font.bodySmall
                   }
                   Text {
                     textFormat: Text.PlainText
                     text: modelData.label
                     color: modelData.kind === "group" ? root.foreground : root.subtle
                     font.family: Style.font.family
-                    font.pixelSize: modelData.kind === "group" ? 13 : 12
+                    font.pixelSize: modelData.kind === "group" ? Style.font.body : Style.font.bodySmall
                     Layout.fillWidth: true
                     Layout.maximumWidth: nameMetrics.advanceWidth + 4
                     elide: Text.ElideRight
@@ -598,10 +781,10 @@ Item {
                   Text {
                     textFormat: Text.PlainText
                     visible: modelData.kind === "group" && modelData.count > 1
-                    text: modelData.count
+                    text: "×" + modelData.count
                     color: root.subtle
                     font.family: Style.font.family
-                    font.pixelSize: 11
+                    font.pixelSize: Style.font.caption
                     Layout.alignment: Qt.AlignVCenter
                   }
                   Item {
@@ -612,7 +795,7 @@ Item {
                     text: root.fmtVal(root.tab, modelData)
                     color: root.subtle
                     font.family: Style.font.family
-                    font.pixelSize: 12
+                    font.pixelSize: Style.font.bodySmall
                     Layout.preferredWidth: 72
                     horizontalAlignment: Text.AlignRight
                   }
@@ -626,52 +809,35 @@ Item {
         ColumnLayout {
           Layout.fillWidth: true
           Layout.fillHeight: true
-          spacing: 8
+          spacing: Style.space(6)
           visible: root.inDetail
 
-          RowLayout {
+          Item {
             Layout.fillWidth: true
-            spacing: 8
-            Image {
-              visible: root.detailIcon() !== ""
-              source: root.detailIcon() ? "file://" + encodeURI(root.detailIcon()) : ""
-              sourceSize.width: 48
-              sourceSize.height: 48
-              Layout.preferredWidth: 24
-              Layout.preferredHeight: 24
-              Layout.alignment: Qt.AlignVCenter
-              smooth: true
-              asynchronous: true
+            Layout.topMargin: Style.space(8)
+            visible: root.inApp
+            implicitHeight: Math.max(memberHeader.implicitHeight, memberValue.implicitHeight)
+            PanelSectionHeader {
+              id: memberHeader
+              text: "PROCESSES"
+              foreground: root.foreground
+              fontFamily: Style.font.family
+              anchors.left: parent.left
+              anchors.leftMargin: 8
+              anchors.verticalCenter: parent.verticalCenter
             }
             Text {
+              id: memberValue
               textFormat: Text.PlainText
-              text: root.detailTitle()
-              color: root.foreground
+              text: root.tabLabel(root.tab)
+              color: root.subtle
               font.family: Style.font.family
-              font.pixelSize: 15
+              font.pixelSize: Style.font.caption
               font.bold: true
-              Layout.fillWidth: true
-              elide: Text.ElideRight
+              anchors.right: parent.right
+              anchors.rightMargin: 8
+              anchors.verticalCenter: parent.verticalCenter
             }
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            Layout.fillWidth: true
-            elide: Text.ElideRight
-            text: root.detailMeta()
-            color: root.subtle
-            font.family: Style.font.family
-            font.pixelSize: 11
-          }
-
-          Text {
-            textFormat: Text.PlainText
-            Layout.fillWidth: true
-            text: root.detailMetrics()
-            color: root.foreground
-            font.family: Style.font.family
-            font.pixelSize: 13
           }
 
           Rectangle {
@@ -679,8 +845,6 @@ Item {
             Layout.fillHeight: true
             visible: root.inApp
             color: "transparent"
-            border.width: 1
-            border.color: root.cardBorder
             radius: Style.cornerRadius
 
             ListView {
@@ -691,14 +855,23 @@ Item {
               delegate: MouseArea {
                 required property var modelData
                 width: ListView.view.width - 16
-                height: memberRow.height
+                height: memberRow.implicitHeight + Style.space(4)
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.selectProcess(modelData.pid)
+
+                Rectangle {
+                  anchors.fill: parent
+                  radius: Style.cornerRadius
+                  color: Style.hoverFillFor(root.foreground, Color.accent)
+                  opacity: parent.containsMouse ? 1 : 0
+                }
 
                 RowLayout {
                   id: memberRow
                   width: parent.width
-                  spacing: 8
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(6)
                   Image {
                     source: modelData.icon_path ? "file://" + encodeURI(modelData.icon_path) : ""
                     sourceSize.width: 32
@@ -706,7 +879,7 @@ Item {
                     Layout.preferredWidth: 16
                     Layout.preferredHeight: 16
                     Layout.alignment: Qt.AlignVCenter
-                    opacity: 0.5
+                    opacity: 0.55
                     smooth: true
                     asynchronous: true
                     cache: true
@@ -716,26 +889,41 @@ Item {
                     text: modelData.label
                     color: root.foreground
                     font.family: Style.font.family
-                    font.pixelSize: 13
+                    font.pixelSize: Style.font.body
                     Layout.fillWidth: true
                     elide: Text.ElideRight
                   }
                   // Keeps its width when hidden so the columns stay aligned.
-                  Text {
-                    textFormat: Text.PlainText
-                    text: "main"
-                    color: root.subtle
-                    font.family: Style.font.family
-                    font.pixelSize: 10
-                    Layout.preferredWidth: 32
-                    opacity: modelData.main === true ? 1 : 0
+                  Item {
+                    Layout.preferredWidth: 44
+                    // MAIN chip, only on the app's main process.
+                    Rectangle {
+                      visible: modelData.main
+                      anchors.left: parent.left
+                      anchors.verticalCenter: parent.verticalCenter
+                      width: mainTag.implicitWidth + Style.space(8)
+                      height: mainTag.implicitHeight + Style.space(3)
+                      radius: 3
+                      color: Style.selectedAccentFill
+                      Text {
+                        id: mainTag
+                        anchors.centerIn: parent
+                        textFormat: Text.PlainText
+                        text: "MAIN"
+                        color: Color.accent
+                        font.family: Style.font.family
+                        font.pixelSize: Math.max(9, Style.font.caption - 2)
+                        font.bold: true
+                        font.letterSpacing: 1
+                      }
+                    }
                   }
                   Text {
                     textFormat: Text.PlainText
                     text: modelData.pid
                     color: root.subtle
                     font.family: Style.font.family
-                    font.pixelSize: 11
+                    font.pixelSize: Style.font.caption
                     Layout.preferredWidth: 48
                     horizontalAlignment: Text.AlignRight
                   }
@@ -744,7 +932,7 @@ Item {
                     text: root.fmtVal(root.tab, modelData)
                     color: root.subtle
                     font.family: Style.font.family
-                    font.pixelSize: 12
+                    font.pixelSize: Style.font.bodySmall
                     Layout.preferredWidth: 72
                     horizontalAlignment: Text.AlignRight
                   }
@@ -764,6 +952,7 @@ Item {
             }
             Button {
               text: "Kill"
+              foreground: Color.urgent
               onClicked: root.confirmKill(true)
             }
           }

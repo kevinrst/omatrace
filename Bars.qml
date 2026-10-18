@@ -37,7 +37,7 @@ Item {
           required property string modelData
           text: modelData
           textFormat: Text.PlainText
-          color: Color.muted
+          color: Qt.darker(Color.foreground, 1.5)
           font.family: Style.font.family
           font.pixelSize: 10
           width: 44
@@ -62,8 +62,8 @@ Item {
           y: Math.round(index * area.height / root.yLabels.length)
           width: area.width
           height: 1
-          color: Color.muted
-          opacity: 0.25
+          color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
+          opacity: 1.0
         }
       }
 
