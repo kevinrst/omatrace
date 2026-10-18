@@ -72,6 +72,11 @@ full process view, which is where a single process is ended. `End`/`Kill` in the
 app view itself ends every process of the app — the main process is signalled
 first so it cannot respawn the processes that follow it.
 
+A process that is gone takes its view with it: the view follows the live
+snapshot, so a process that was ended — or one that exited on its own — falls
+back to its app, or to the list once the app is gone too. History is left
+alone: it shows what was, not what is.
+
 An app's chart is the summed own usage of its processes, computed per ring
 snapshot (`proc_history` with `pids`), so the curve agrees with the totals
 above it rather than with the main process alone.

@@ -107,6 +107,19 @@ Item {
     }
   }
 
+  function pruneSelection() {
+    if (!root.inDetail || !store || store.historyMode) return
+    if (root.inProcess && root.selectedProcess()) return
+    if (!root.inProcess && root.selectedGroupData()) return
+    if (root.inProcess && root.selectedGroup && root.selectedGroupData()) {
+      root.back()
+      return
+    }
+    root.selectedPid = -1
+    root.selectedGroup = ""
+    store.clearProc()
+  }
+
   // Process grouping 
   function groupKey(p) {
     return p.exe_path ? "exe:" + p.exe_path : "name:" + (p.name || "?")
@@ -370,6 +383,13 @@ Item {
     if (pids.length <= 1) return verb + killDialog.procName + " (" + (pids[0] || 0) + ")?"
     if (pids.length === 2) return verb + killDialog.procName + " and 1 other process?"
     return verb + killDialog.procName + " and its " + (pids.length - 1) + " other processes?"
+  }
+
+  Connections {
+    target: root.store
+    function onSnapshotChanged() { root.pruneSelection() }
+    function onHistoryModeChanged() { root.pruneSelection() }
+    function onKilled(count) { if (count > 0) root.back() }
   }
 
   FloatingWindow {

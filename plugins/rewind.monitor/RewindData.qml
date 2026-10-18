@@ -20,6 +20,9 @@ Item {
   property var selectedSnapshot: null
   property int selectedPos: -1
 
+  // How many processes the daemon signalled, per kill request.
+  signal killed(int count)
+
   property var _pending: ({})
 
   // Per-process sparkline for the drill-down view.
@@ -97,6 +100,11 @@ Item {
         if (!msg || !msg.ok) {
           if (msg && msg.pids && msg.killed === 0)
             console.warn("rewind: could not signal " + msg.pids.join(","))
+          if (msg && msg.killed !== undefined) root.killed(msg.killed)
+          return
+        }
+        if (msg.killed !== undefined) {
+          root.killed(msg.killed)
           return
         }
         // Per-process sparkline answering a drill-down (trimmed to the
