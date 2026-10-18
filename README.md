@@ -147,7 +147,7 @@ that the daemon is offline.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/kevinrst/rewind.git --enable
+omarchy plugin add https://github.com/kevinrst/omatrace.git --enable
 ~/.config/omarchy/plugins/kevin.omatrace/install.sh
 omarchy restart shell
 ```
