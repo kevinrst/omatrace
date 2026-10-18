@@ -4,11 +4,11 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Rewind bar widget: single icon. Click toggles the metrics popup
+// Omatrace bar widget: single icon. Click toggles the metrics popup
 // anchored to the icon; metric rows open the centered dashboard.
 BarWidget {
   id: root
-  moduleName: "rewind.monitor"
+  moduleName: "kevin.omatrace"
 
   readonly property string iconGlyph: ""
 
@@ -43,7 +43,7 @@ BarWidget {
 
   onBarChanged: injectPanel()
 
-  RewindData {
+  OmatraceData {
     id: store
   }
 
@@ -70,7 +70,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "rewind.monitor"
+    target: "kevin.omatrace"
 
     function open(): void { root.open() }
     function close(): void { root.close() }

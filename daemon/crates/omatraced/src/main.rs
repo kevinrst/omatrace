@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     let runtime = dirs_socket(&args.socket);
     let state = Arc::new(Mutex::new(sample::State::new(args.interval_secs)));
     let tick_state = state.clone();
-    let interval = std::env::var("REWIND_INTERVAL")
+    let interval = std::env::var("OMATRACE_INTERVAL")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(args.interval_secs);
@@ -43,7 +43,7 @@ fn dirs_socket(override_: &str) -> String {
         return override_.to_string();
     }
     if let Ok(r) = std::env::var("XDG_RUNTIME_DIR") {
-        return format!("{r}/rewind.sock");
+        return format!("{r}/omatrace.sock");
     }
-    "/tmp/rewind.sock".to_string()
+    "/tmp/omatrace.sock".to_string()
 }

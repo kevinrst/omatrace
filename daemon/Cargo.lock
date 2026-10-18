@@ -575,6 +575,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "omatrace-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "netstat2",
+ "serde",
+ "serde_json",
+ "sysinfo",
+]
+
+[[package]]
+name = "omatraced"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "omatrace-core",
+ "serde",
+ "serde_json",
+ "sysinfo",
+ "tokio",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -686,31 +711,6 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
-
-[[package]]
-name = "rewind-core"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "netstat2",
- "serde",
- "serde_json",
- "sysinfo",
-]
-
-[[package]]
-name = "rewindd"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "rewind-core",
- "serde",
- "serde_json",
- "sysinfo",
- "tokio",
-]
 
 [[package]]
 name = "rustc-hash"

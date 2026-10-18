@@ -1,4 +1,4 @@
-use rewind_core::{
+use omatrace_core::{
     collect_processes, History, IconIndex, NetTracker, ProcessMeta, Sampler, Snapshot,
 };
 use std::collections::{HashMap, VecDeque};
@@ -85,7 +85,7 @@ impl State {
         self.history.snapshots.len()
     }
 
-    pub fn proc_history(&self, pid: u32) -> Vec<rewind_core::ProcessSnapshotFull> {
+    pub fn proc_history(&self, pid: u32) -> Vec<omatrace_core::ProcessSnapshotFull> {
         self.history
             .per_process
             .get(&pid)
@@ -96,14 +96,14 @@ impl State {
     /// One series for a whole app: the summed own usage of its processes over
     /// the ring. Summing per snapshot keeps the points aligned even when the
     /// individual processes started at different times.
-    pub fn proc_history_sum(&self, pids: &[u32]) -> Vec<rewind_core::ProcessSnapshotFull> {
+    pub fn proc_history_sum(&self, pids: &[u32]) -> Vec<omatrace_core::ProcessSnapshotFull> {
         use std::collections::HashSet;
         let set: HashSet<u32> = pids.iter().copied().collect();
         self.history
             .snapshots
             .iter()
             .map(|snap| {
-                let mut point = rewind_core::ProcessSnapshotFull {
+                let mut point = omatrace_core::ProcessSnapshotFull {
                     pid: 0,
                     ts_ms: snap.ts_ms,
                     cpu: 0.0,
@@ -124,7 +124,7 @@ impl State {
             .collect()
     }
 
-    pub fn system_history(&self, from_ms: i64) -> Vec<rewind_core::SystemSample> {
+    pub fn system_history(&self, from_ms: i64) -> Vec<omatrace_core::SystemSample> {
         self.history
             .samples
             .iter()
@@ -145,8 +145,8 @@ impl State {
 
 fn detect_event(
     prev_cpu: f32,
-    s: &rewind_core::SystemSample,
-    top: &[rewind_core::FlatProcess],
+    s: &omatrace_core::SystemSample,
+    top: &[omatrace_core::FlatProcess],
 ) -> Option<Event> {
     // Spike: jump > 30 pts and absolute > 70%.
     if s.cpu_percent - prev_cpu > 30.0 && s.cpu_percent > 70.0 {

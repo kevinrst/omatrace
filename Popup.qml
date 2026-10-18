@@ -2,11 +2,11 @@ import QtQuick
 import Quickshell
 import qs.Commons
 import qs.Ui
-import "RewindClient.js" as Client
+import "OmatraceClient.js" as Client
 
 Panel {
   id: root
-  moduleName: "rewind.monitor"
+  moduleName: "kevin.omatrace"
   ipcTarget: ""
   manageIpc: false
 

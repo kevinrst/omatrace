@@ -3,7 +3,7 @@ import QtQuick.Layouts
 import Quickshell
 import qs.Commons
 import qs.Ui
-import "RewindClient.js" as Client
+import "OmatraceClient.js" as Client
 
 Item {
   id: root
@@ -394,7 +394,7 @@ Item {
 
   FloatingWindow {
     id: window
-    title: "Rewind"
+    title: "Omatrace"
     visible: false 
     color: root.background
     implicitWidth: 680
@@ -546,12 +546,12 @@ Item {
               delegate: MouseArea {
                 required property var modelData
                 width: ListView.view.width - 16
-                height: row.height
+                height: listRow.height
                 cursorShape: Qt.PointingHandCursor
                 onClicked: function(mouse) { root.activateRow(modelData, mouse.x) }
 
                 RowLayout {
-                  id: row
+                  id: listRow
                   width: parent.width
                   spacing: 8
                   Item {
@@ -691,12 +691,12 @@ Item {
               delegate: MouseArea {
                 required property var modelData
                 width: ListView.view.width - 16
-                height: row.height
+                height: memberRow.height
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.selectProcess(modelData.pid)
 
                 RowLayout {
-                  id: row
+                  id: memberRow
                   width: parent.width
                   spacing: 8
                   Image {

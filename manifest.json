@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "id": "rewind.monitor",
-  "name": "Rewind",
+  "id": "kevin.omatrace",
+  "name": "Omatrace",
   "version": "0.1.0",
-  "author": "Rewind",
-  "description": "System monitoring with timeline snapshots. Icon, popup, dashboard.",
+  "author": "kevinrst",
+  "description": "System monitor with a timeline: live metrics, scrubbable history, per-app process drill-down and process control. Requires the omatraced daemon (see README).",
   "kinds": ["bar-widget"],
   "entryPoints": {
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Rewind",
+    "displayName": "Omatrace",
     "description": "System monitor. Click for metrics, then drill into the timeline.",
     "category": "System",
     "allowMultiple": false

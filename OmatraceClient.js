@@ -1,4 +1,4 @@
-// Shared formatting + offline fallback snapshot for Rewind QML.
+// Shared formatting + offline fallback snapshot for Omatrace QML.
 .pragma library
 
 function mockSnapshot() {

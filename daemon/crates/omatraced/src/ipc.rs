@@ -9,7 +9,7 @@ use crate::sample::State;
 pub async fn serve(sock: &str, state: Arc<Mutex<State>>) -> Result<()> {
     let _ = std::fs::remove_file(sock);
     let listener = UnixListener::bind(sock)?;
-    println!("rewindd listening on {sock}");
+    println!("omatraced listening on {sock}");
     loop {
         let (stream, _) = listener.accept().await?;
         let st = state.clone();

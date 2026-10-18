@@ -30,7 +30,7 @@ Item {
   property var procPoints: [] // [{ts_ms, cpu, ram, net}]
   property int _pendingPid: -1
 
-  readonly property string socketPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/run/user/1000") + "/rewind.sock"
+  readonly property string socketPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/run/user/1000") + "/omatrace.sock"
 
   readonly property var liveSnapshot: selectedSnapshot || snapshot
   readonly property bool historyMode: selectedSnapshot !== null
@@ -99,7 +99,7 @@ Item {
         try { msg = JSON.parse(String(line)) } catch (e) { return }
         if (!msg || !msg.ok) {
           if (msg && msg.pids && msg.killed === 0)
-            console.warn("rewind: could not signal " + msg.pids.join(","))
+            console.warn("omatrace: could not signal " + msg.pids.join(","))
           if (msg && msg.killed !== undefined) root.killed(msg.killed)
           return
         }

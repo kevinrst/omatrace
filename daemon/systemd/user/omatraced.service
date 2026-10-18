@@ -1,9 +1,9 @@
 [Unit]
-Description=Rewind system monitor daemon
+Description=Omatrace system monitor daemon
 After=network.target
 
 [Service]
-ExecStart=%h/.local/bin/rewindd
+ExecStart=%h/.local/bin/omatraced
 Restart=on-failure
 RestartSec=5
 

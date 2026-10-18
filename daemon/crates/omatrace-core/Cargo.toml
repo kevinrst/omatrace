@@ -1,8 +1,8 @@
 [package]
-name = "rewind-core"
+name = "omatrace-core"
 version = "0.1.0"
 edition = "2021"
-description = "Portable monitoring engine for Rewind"
+description = "Portable monitoring engine for Omatrace"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

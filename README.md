@@ -1,26 +1,39 @@
-# Rewind — System Monitoring & Diagnostics for Omarchy
+# Omatrace — System Monitoring & Diagnostics for Omarchy
 
 See what's happening. Understand why.
 
-Native Omarchy app: Rust engine (`rewindd` daemon) + Quickshell plugin
+Native Omarchy app: Rust engine (`omatraced` daemon) + Quickshell plugin
 (bar widget + dashboard window). Timeline-first: every sample is a
 snapshot you can scrub back through, with per-process attribution.
 
 ## Layout
 
+The repository root is the plugin folder. `omarchy plugin add` clones it into
+`~/.config/omarchy/plugins/kevin.omatrace/` and loads `BarWidget.qml` from there;
+the daemon lives beside it in `daemon/`.
+
 ```
-rewind/
-  Cargo.toml                  # workspace
-  crates/
-    rewind-core/               # portable engine: sampling model, aggregation, metrics
-    rewindd/                   # daemon: sampling, in-memory ring, Unix-socket JSON
-  plugins/
-    rewind.monitor/            # Omarchy shell plugin (bar-widget + panel)
+omatrace/
+  manifest.json               # plugin manifest: id kevin.omatrace, bar-widget
+  BarWidget.qml               # entry point: bar icon, popup, dashboard lifecycle
+  Popup.qml                   # metrics panel anchored to the icon
+  Dashboard.qml               # floating dashboard window (tables, charts, drill-down)
+  OmatraceData.qml            # daemon connection, snapshots, history requests
+  OmatraceClient.js           # formatting helpers + offline fallback snapshot
+  Bars.qml                    # chart primitives (two-tone timeline bars)
+  install.sh                  # builds/installs the daemon, installs the plugin
+  uninstall.sh                # stops the daemon, removes binary, unit, plugin
+  daemon/
+    Cargo.toml                # workspace
+    crates/
+      omatrace-core/          # portable engine: sampling model, aggregation, metrics
+      omatraced/              # daemon: sampling, in-memory ring, Unix-socket JSON
+    systemd/user/omatraced.service
 ```
 
 ## IPC
 
-Unix socket `$XDG_RUNTIME_DIR/rewind.sock`, one JSON object per line.
+Unix socket `$XDG_RUNTIME_DIR/omatrace.sock`, one JSON object per line.
 Timestamps are unix millis; CPU is 0-100 float; RAM/net are bytes and bytes/sec.
 
 | method | args | returns |
@@ -91,7 +104,7 @@ Process icons come from the freedesktop chain: executable basename → `.desktop
 `Exec=` → `Icon=` → a file in the icon theme (`hicolor`, `Adwaita`, `Yaru`,
 `pixmaps`, plus flatpak and `~/.local/share` exports), SVG first. The index is
 built at daemon start, so a newly installed app needs
-`systemctl --user restart rewindd`. When several desktop files share one
+`systemctl --user restart omatraced`. When several desktop files share one
 `Exec=` — kitty also ships `kitty-open.desktop`, "kitty URL Launcher" — the
 entry named after the binary and not marked `NoDisplay` wins.
 
@@ -112,19 +125,55 @@ default icon.
 Scaffold v0.1. Daemon runs, QML plugin loads with mock fallback
 when daemon is offline.
 
-## Quick start
+## Requirements
+
+The plugin is only the UI. It needs the `omatraced` daemon from this same repo
+(`daemon/`); without it the dashboard shows its fallback snapshot and a note
+that the daemon is offline.
+
+- **Build**: Rust and cargo (rustup or your distro's packages) to build the
+  daemon. The QML side needs nothing beyond the Omarchy shell.
+- **Privileges**: the daemon is a **systemd user service** running as you. No
+  root, no sudo, no setuid helper, no capabilities. It reads `/proc`, `/sys` and
+  desktop files, and can only signal processes you own — other users' processes
+  come back `EPERM` and the UI reports that nothing was signalled.
+- **Socket**: `$XDG_RUNTIME_DIR/omatrace.sock`, JSON lines, reachable by your
+  user only. The daemon never opens a network port.
+- **Data**: samples live in memory (150-snapshot ring, ~5 min at the default 2s
+  interval). Nothing is written to disk and nothing leaves the machine.
+- **No second shell**: the UI is QML loaded by the long-lived `omarchy-shell`
+  process. `omatraced` is a plain user service, not another Quickshell.
+
+## Install
 
 ```bash
-./install.sh
-# then: omarchy plugin enable rewind.monitor --section right
-#       omarchy restart shell
+omarchy plugin add https://github.com/kevinrst/rewind.git --enable
+~/.config/omarchy/plugins/kevin.omatrace/install.sh
+omarchy restart shell
 ```
 
-Manual equivalent: `cargo build --release -p rewindd`, copy the binary to
-`~/.local/bin`, the unit to `~/.config/systemd/user`, the plugin to
-`~/.config/omarchy/plugins/rewind.monitor`. See `install.sh`.
+The first line installs and enables the widget; `install.sh` does the daemon
+side: builds `omatraced`, installs it to `~/.local/bin`, installs and starts
+`omatraced.service`, validates the plugin and rescans the shell. Add
+`--section left|center|right` to `omarchy plugin enable kevin.omatrace` if the
+widget is not where you want it.
 
-Daemon socket: `$XDG_RUNTIME_DIR/rewind.sock` (JSON lines, see IPC table above).
+From a development checkout the same script works: it builds the daemon and
+copies the shell files into `~/.config/omarchy/plugins/kevin.omatrace/`. Manual
+equivalent:
+
+```bash
+cargo build --release --manifest-path daemon/Cargo.toml -p omatraced
+install -Dm755 daemon/target/release/omatraced ~/.local/bin/omatraced
+install -Dm644 daemon/systemd/user/omatraced.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now omatraced
+```
+
+Remove everything with `./uninstall.sh`: it stops and deletes the service and
+binary and removes the plugin folder (`omarchy plugin remove kevin.omatrace` for
+the UI alone). Afterwards: `omarchy restart shell`.
+
+Daemon socket: `$XDG_RUNTIME_DIR/omatrace.sock` (JSON lines, see IPC table above).
 
 History is in-memory only: the daemon keeps a ring of the last 150 samples
 (~5 min at the default 2s interval), so charts start empty after a reboot and
@@ -136,7 +185,7 @@ The dashboard is a regular window — keep it out of the tiling layout
 with a Hyprland rule (matches the window title):
 
 ```lua
-o.window({ title = "Rewind" }, { float = true, center = true })
+o.window({ title = "Omatrace" }, { float = true, center = true })
 ```
 
 The bar icon is a placeholder glyph; swap `BarWidget.qml`'s `text` for an

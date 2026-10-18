@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/omatrace-core", "crates/omatraced"]
+resolver = "2"
